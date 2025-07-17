@@ -6,25 +6,30 @@ A simple and easy-to-use Chrome browser proxy management extension, designed to 
 
 ## Screenshots
 
-### Extension Interface
+### Extension Popup Interface
 
-![Extension Popup](images/popup.png)
-_Main popup interface showing failed requests and quick actions_
+![Extension Popup Interface](./images/popup.png)
+_Extension popup showing failed requests monitoring and quick proxy actions_
 
-### Settings Page
+### General Settings Page
 
-![Settings Page](images/settings.png)
-_General settings for proxy server configuration_
+![General Settings](./images/settings.png)
+_Proxy server configuration interface with protocol selection and connection testing_
+
+### Add Proxy Rules
+
+![Add Proxy Rules](./images/add-rule.png)
+_Interface for adding and managing domain-based proxy rules_
 
 ### Proxy Rules Management
 
-![Proxy Rules](images/rules.png)
-_Manage proxy rules with domain patterns_
+![Proxy Rules Management](./images/rules.png)
+_View and manage existing proxy rules with domain patterns_
 
-### Network Monitoring
+### Proxy Server Testing
 
-![Network Monitoring](images/monitoring.png)
-_Real-time network request monitoring_
+![Proxy Server Testing](./images/test-proxy-server.png)
+_Proxy server connectivity testing with response time and status indicators_
 
 ## Extension Overview
 
@@ -190,31 +195,3 @@ For problems or help:
 -   Check GitHub Issues page
 -   Send email to: biscuit_zhou#outlook.com (replace # with @)
 -   Leave feedback on Chrome Web Store page
-
----
-
-## Developer Information
-
-### Technology Stack
-
--   **Framework**: Plasmo Framework
--   **Frontend**: React + TypeScript
--   **UI Library**: Material-UI
-
-### Development Build
-
-```bash
-# Install dependencies
-pnpm install
-
-# Development mode
-pnpm dev
-
-# Production build
-pnpm build
-
-# Package for release
-pnpm package
-```
-
-**Keywords**: proxy management, SwitchyOmega alternative, network monitoring, Chrome extension, proxy switching

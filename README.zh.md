@@ -8,23 +8,28 @@
 
 ### 扩展弹窗界面
 
-![扩展弹窗](images/popup.png)
-_主弹窗界面，显示失败请求和快速操作_
+![扩展弹窗界面](./images/popup.png)
+_扩展弹窗显示失败请求监控和快速代理操作_
 
-### 设置页面
+### 常规设置页面
 
-![设置页面](images/settings.png)
-_代理服务器配置的常规设置_
+![常规设置](./images/settings.png)
+_代理服务器配置界面，包含协议选择和连接测试功能_
+
+### 添加代理规则
+
+![添加代理规则](./images/add-rule.png)
+_添加和管理基于域名的代理规则界面_
 
 ### 代理规则管理
 
-![代理规则](images/rules.png)
-_通过域名模式管理代理规则_
+![代理规则管理](./images/rules.png)
+_查看和管理现有代理规则及域名模式_
 
-### 网络监控
+### 代理服务器测试
 
-![网络监控](images/monitoring.png)
-_实时网络请求监控_
+![代理服务器测试](./images/test-proxy-server.png)
+_代理服务器连通性测试，显示响应时间和状态指示_
 
 ## 插件简介
 
@@ -187,31 +192,3 @@ pnpm build
 -   查看GitHub Issues页面
 -   发送邮件至：biscuit_zhou#outlook.com(请把#替换为@)
 -   在Chrome Web Store页面留言反馈
-
----
-
-## 开发者信息
-
-### 技术栈
-
--   **框架**：Plasmo Framework
--   **前端**：React + TypeScript
--   **UI库**：Material-UI
-
-### 开发构建
-
-```bash
-# 安装依赖
-pnpm install
-
-# 开发模式
-pnpm dev
-
-# 生产构建
-pnpm build
-
-# 打包发布
-pnpm package
-```
-
--   **关键词**：代理管理、SwitchyOmega替代、网络监控、Chrome扩展、代理切换
