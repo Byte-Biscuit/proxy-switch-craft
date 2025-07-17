@@ -1,0 +1,250 @@
+{
+    "appName": {
+        "message": "Proxy Switch Settings",
+        "description": "Application name"
+    },
+    "settingsTitle": {
+        "message": "Settings",
+        "description": "Settings title"
+    },
+    "generalSettings": {
+        "message": "General Settings",
+        "description": "General settings tab"
+    },
+    "proxyRulesDetails": {
+        "message": "Proxy Rules Details",
+        "description": "Proxy rules details tab"
+    },
+    "networkMonitoring": {
+        "message": "🌐 Network Monitoring Settings",
+        "description": "Network monitoring settings section"
+    },
+    "responseTimeThreshold": {
+        "message": "Network Response Timeout Threshold (ms)",
+        "description": "Network response timeout threshold field"
+    },
+    "responseTimeThresholdHelper": {
+        "message": "Monitor direct network response time. Domains exceeding this value will show failure count on extension icon, click to view details",
+        "description": "Helper text for response time threshold"
+    },
+    "proxyServerSettings": {
+        "message": "🔗 Proxy Server Settings",
+        "description": "Proxy server settings section"
+    },
+    "proxyServerAddress": {
+        "message": "Proxy Server Address",
+        "description": "Proxy server address field"
+    },
+    "proxyServerAddressHelper": {
+        "message": "Can be IP address or domain name",
+        "description": "Helper text for proxy server address"
+    },
+    "proxyServerPort": {
+        "message": "Proxy Server Port",
+        "description": "Proxy server port field"
+    },
+    "proxyProtocol": {
+        "message": "Proxy Protocol",
+        "description": "Proxy protocol field"
+    },
+    "autoDetect": {
+        "message": "Auto Detect",
+        "description": "Auto detect button"
+    },
+    "proxyAuthSettings": {
+        "message": "🔐 Proxy Authentication Settings (Optional)",
+        "description": "Proxy authentication settings section"
+    },
+    "username": {
+        "message": "Username (Optional)",
+        "description": "Username field"
+    },
+    "password": {
+        "message": "Password (Optional)",
+        "description": "Password field"
+    },
+    "operationSettings": {
+        "message": "⚙️ Operation Settings",
+        "description": "Operation settings section"
+    },
+    "testProxyServer": {
+        "message": "Test Proxy Server",
+        "description": "Test proxy server button"
+    },
+    "saveGeneralSettings": {
+        "message": "Save General Settings",
+        "description": "Save general settings button"
+    },
+    "addRule": {
+        "message": "Add Rule",
+        "description": "Add rule button"
+    },
+    "saveRules": {
+        "message": "Save Rules",
+        "description": "Save rules button"
+    },
+    "noRulesMessage": {
+        "message": "No proxy rules yet, click \"Add Rule\" button to add new rules",
+        "description": "No rules message"
+    },
+    "proxyRulePattern": {
+        "message": "Proxy Rule Pattern",
+        "description": "Proxy rule pattern description"
+    },
+    "editRule": {
+        "message": "Edit Rule",
+        "description": "Edit rule dialog title"
+    },
+    "addRuleDialog": {
+        "message": "Add Rule",
+        "description": "Add rule dialog title"
+    },
+    "rulePattern": {
+        "message": "Rule Pattern",
+        "description": "Rule pattern field"
+    },
+    "rulePatternHelper": {
+        "message": "Examples: *.google.com, *.facebook.com",
+        "description": "Helper text for rule pattern"
+    },
+    "cancel": {
+        "message": "Cancel",
+        "description": "Cancel button"
+    },
+    "save": {
+        "message": "Save",
+        "description": "Save button"
+    },
+    "add": {
+        "message": "Add",
+        "description": "Add button"
+    },
+    "testProxyDialog": {
+        "message": "Test Proxy Server",
+        "description": "Test proxy dialog title"
+    },
+    "testTargetUrl": {
+        "message": "Test Target URL",
+        "description": "Test target URL field"
+    },
+    "testTargetUrlHelper": {
+        "message": "Enter target website URL to test",
+        "description": "Helper text for test target URL"
+    },
+    "close": {
+        "message": "Close",
+        "description": "Close button"
+    },
+    "startTest": {
+        "message": "Start Test",
+        "description": "Start test button"
+    },
+    "testing": {
+        "message": "Testing...",
+        "description": "Testing status"
+    },
+    "settingsSaved": {
+        "message": "Settings saved",
+        "description": "Settings saved message"
+    },
+    "saveSettingsFailed": {
+        "message": "Failed to save settings",
+        "description": "Save settings failed message"
+    },
+    "configureProxyFirst": {
+        "message": "Please configure proxy server address and port first",
+        "description": "Configure proxy first message"
+    },
+    "proxyTestSuccess": {
+        "message": "Proxy test successful",
+        "description": "Proxy test success message"
+    },
+    "proxyTestFailed": {
+        "message": "Proxy test failed",
+        "description": "Proxy test failed message"
+    },
+    "autoDetectScheme": {
+        "message": "Proxy protocol auto-detected",
+        "description": "Auto detect scheme message"
+    },
+    "enterRulePattern": {
+        "message": "Please enter rule pattern",
+        "description": "Enter rule pattern message"
+    },
+    "testSuccess": {
+        "message": "✅ Test successful! Response time: {responseTime}ms",
+        "description": "Test success message"
+    },
+    "testFailed": {
+        "message": "❌ Test failed: {error}",
+        "description": "Test failed message"
+    },
+    "testTimeout": {
+        "message": "Test timeout",
+        "description": "Test timeout error"
+    },
+    "connectionFailed": {
+        "message": "Connection failed",
+        "description": "Connection failed error"
+    },
+    "unknownError": {
+        "message": "Unknown error",
+        "description": "Unknown error message"
+    },
+    "searchRules": {
+        "message": "Search Rules",
+        "description": "Search rules input label"
+    },
+    "searchRulesPlaceholder": {
+        "message": "Enter pattern to search...",
+        "description": "Search rules input placeholder"
+    },
+    "searchRulesHelper": {
+        "message": "Search rules by pattern name",
+        "description": "Search rules helper text"
+    },
+    "noRulesFoundMessage": {
+        "message": "No rules found matching your search",
+        "description": "No rules found message"
+    },
+    "loading": {
+        "message": "Loading...",
+        "description": "Loading message"
+    },
+    "noFailedRequests": {
+        "message": "No failed requests detected",
+        "description": "No failed requests message"
+    },
+    "failedRequestsCount": {
+        "message": "Found {count} failed requests",
+        "description": "Failed requests count message"
+    },
+    "addToProxy": {
+        "message": "Add to Proxy",
+        "description": "Add to proxy button"
+    },
+    "responseTime": {
+        "message": "Response Time",
+        "description": "Response time label"
+    },
+    "error": {
+        "message": "Error",
+        "description": "Error label"
+    },
+    "status": {
+        "message": "Status",
+        "description": "Status label"
+    },
+    "openSettings": {
+        "message": "Open Settings",
+        "description": "Open settings button"
+    },
+    "addAllToProxy": {
+        "message": "Add All to Proxy",
+        "description": "Add all failed requests to proxy rules"
+    },
+    "reload": {
+        "message": "Reload",
+        "description": "Reload button"
+    }
+}

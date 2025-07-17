@@ -1,0 +1,250 @@
+{
+    "appName": {
+        "message": "代理魔方",
+        "description": "Application name"
+    },
+    "settingsTitle": {
+        "message": "设置",
+        "description": "Settings title"
+    },
+    "generalSettings": {
+        "message": "常规设置",
+        "description": "General settings tab"
+    },
+    "proxyRulesDetails": {
+        "message": "代理规则明细",
+        "description": "Proxy rules details tab"
+    },
+    "networkMonitoring": {
+        "message": "🌐 网络监控设置",
+        "description": "Network monitoring settings section"
+    },
+    "responseTimeThreshold": {
+        "message": "网络响应超时阈值 (毫秒)",
+        "description": "Network response timeout threshold field"
+    },
+    "responseTimeThresholdHelper": {
+        "message": "监控直连网络响应时间，超过此值的域名将在扩展图标上显示失败数量，点击可查看详情",
+        "description": "Helper text for response time threshold"
+    },
+    "proxyServerSettings": {
+        "message": "🔗 代理服务器设置",
+        "description": "Proxy server settings section"
+    },
+    "proxyServerAddress": {
+        "message": "代理服务器地址",
+        "description": "Proxy server address field"
+    },
+    "proxyServerAddressHelper": {
+        "message": "可以是IP地址或域名",
+        "description": "Helper text for proxy server address"
+    },
+    "proxyServerPort": {
+        "message": "代理服务器端口",
+        "description": "Proxy server port field"
+    },
+    "proxyProtocol": {
+        "message": "代理协议",
+        "description": "Proxy protocol field"
+    },
+    "autoDetect": {
+        "message": "自动检测",
+        "description": "Auto detect button"
+    },
+    "proxyAuthSettings": {
+        "message": "🔐 代理认证设置（可选）",
+        "description": "Proxy authentication settings section"
+    },
+    "username": {
+        "message": "用户名 (可选)",
+        "description": "Username field"
+    },
+    "password": {
+        "message": "密码 (可选)",
+        "description": "Password field"
+    },
+    "operationSettings": {
+        "message": "⚙️ 操作设置",
+        "description": "Operation settings section"
+    },
+    "testProxyServer": {
+        "message": "测试代理服务器",
+        "description": "Test proxy server button"
+    },
+    "saveGeneralSettings": {
+        "message": "保存常规设置",
+        "description": "Save general settings button"
+    },
+    "addRule": {
+        "message": "添加规则",
+        "description": "Add rule button"
+    },
+    "saveRules": {
+        "message": "保存规则",
+        "description": "Save rules button"
+    },
+    "noRulesMessage": {
+        "message": "暂无代理规则，点击\"添加规则\"按钮添加新规则",
+        "description": "No rules message"
+    },
+    "proxyRulePattern": {
+        "message": "代理规则模式",
+        "description": "Proxy rule pattern description"
+    },
+    "editRule": {
+        "message": "编辑规则",
+        "description": "Edit rule dialog title"
+    },
+    "addRuleDialog": {
+        "message": "添加规则",
+        "description": "Add rule dialog title"
+    },
+    "rulePattern": {
+        "message": "规则模式",
+        "description": "Rule pattern field"
+    },
+    "rulePatternHelper": {
+        "message": "例如: *.google.com, *.facebook.com",
+        "description": "Helper text for rule pattern"
+    },
+    "cancel": {
+        "message": "取消",
+        "description": "Cancel button"
+    },
+    "save": {
+        "message": "保存",
+        "description": "Save button"
+    },
+    "add": {
+        "message": "添加",
+        "description": "Add button"
+    },
+    "testProxyDialog": {
+        "message": "测试代理服务器",
+        "description": "Test proxy dialog title"
+    },
+    "testTargetUrl": {
+        "message": "测试目标 URL",
+        "description": "Test target URL field"
+    },
+    "testTargetUrlHelper": {
+        "message": "输入要测试的目标网站URL",
+        "description": "Helper text for test target URL"
+    },
+    "close": {
+        "message": "关闭",
+        "description": "Close button"
+    },
+    "startTest": {
+        "message": "开始测试",
+        "description": "Start test button"
+    },
+    "testing": {
+        "message": "测试中...",
+        "description": "Testing status"
+    },
+    "settingsSaved": {
+        "message": "设置已保存",
+        "description": "Settings saved message"
+    },
+    "saveSettingsFailed": {
+        "message": "保存设置失败",
+        "description": "Save settings failed message"
+    },
+    "configureProxyFirst": {
+        "message": "请先配置代理服务器地址和端口",
+        "description": "Configure proxy first message"
+    },
+    "proxyTestSuccess": {
+        "message": "代理测试成功",
+        "description": "Proxy test success message"
+    },
+    "proxyTestFailed": {
+        "message": "代理测试失败",
+        "description": "Proxy test failed message"
+    },
+    "autoDetectScheme": {
+        "message": "已自动检测代理协议",
+        "description": "Auto detect scheme message"
+    },
+    "enterRulePattern": {
+        "message": "请输入规则模式",
+        "description": "Enter rule pattern message"
+    },
+    "testSuccess": {
+        "message": "✅ 测试成功！响应时间: {responseTime}ms",
+        "description": "Test success message"
+    },
+    "testFailed": {
+        "message": "❌ 测试失败: {error}",
+        "description": "Test failed message"
+    },
+    "testTimeout": {
+        "message": "测试超时",
+        "description": "Test timeout error"
+    },
+    "connectionFailed": {
+        "message": "连接失败",
+        "description": "Connection failed error"
+    },
+    "unknownError": {
+        "message": "未知错误",
+        "description": "Unknown error message"
+    },
+    "searchRules": {
+        "message": "搜索规则",
+        "description": "Search rules input label"
+    },
+    "searchRulesPlaceholder": {
+        "message": "输入模式进行搜索...",
+        "description": "Search rules input placeholder"
+    },
+    "searchRulesHelper": {
+        "message": "按模式名称搜索规则",
+        "description": "Search rules helper text"
+    },
+    "noRulesFoundMessage": {
+        "message": "未找到匹配的规则",
+        "description": "No rules found message"
+    },
+    "loading": {
+        "message": "加载中...",
+        "description": "Loading message"
+    },
+    "noFailedRequests": {
+        "message": "未检测到失败的请求",
+        "description": "No failed requests message"
+    },
+    "failedRequestsCount": {
+        "message": "发现 {count} 个失败的请求",
+        "description": "Failed requests count message"
+    },
+    "addToProxy": {
+        "message": "添加到代理",
+        "description": "Add to proxy button"
+    },
+    "responseTime": {
+        "message": "响应时间",
+        "description": "Response time label"
+    },
+    "error": {
+        "message": "错误",
+        "description": "Error label"
+    },
+    "status": {
+        "message": "状态",
+        "description": "Status label"
+    },
+    "openSettings": {
+        "message": "打开设置",
+        "description": "Open settings button"
+    },
+    "addAllToProxy": {
+        "message": "全部添加到代理",
+        "description": "Add all failed requests to proxy rules"
+    },
+    "reload": {
+        "message": "重新加载",
+        "description": "Reload button"
+    }
+}
