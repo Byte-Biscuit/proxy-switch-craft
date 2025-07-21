@@ -1,5 +1,7 @@
 # Proxy Switch Craft
 
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/geaaeblhngmdakfhfgdddcmfagbadogo?label=Install%20from%20Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/proxy-switch-craft/geaaeblhngmdakfhfgdddcmfagbadogo)
+
 **Languages:** [English](README.md) | [中文](README.zh.md)
 
 A simple and easy-to-use Chrome browser proxy management extension, designed to replace SwitchyOmega for proxy settings management and switching.
@@ -152,6 +154,19 @@ pnpm build
     - After configuring server address and port
     - Click "Auto Detect" button
     - System will automatically identify the best protocol type
+
+## ⚠️ Chrome Installation Warning
+
+When installing this extension, Chrome may display a warning due to its proxy management features:
+
+![Chrome Extension Install Warning](./images/chrome_extension_install_warning.jpg)
+_Chrome installation warning for proxy-related extensions_
+
+**Why this happens:**  
+Chrome shows this warning for extensions that request sensitive permissions (such as proxy/network control). This is a standard security measure and does not mean the extension is unsafe.
+
+**What you should do:**  
+If you installed from the official Chrome Web Store link above, you can safely proceed with the installation. The extension does not collect or upload any user data.
 
 ## Important Notes
 

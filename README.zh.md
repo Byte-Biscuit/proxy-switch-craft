@@ -1,5 +1,7 @@
 # Proxy Switch Craft
 
+[![Chrome 网上应用店](https://img.shields.io/chrome-web-store/v/geaaeblhngmdakfhfgdddcmfagbadogo?label=Chrome%20%E7%BD%91%E4%B8%8A%E5%BA%94%E7%94%A8%E5%BA%97%E4%B8%8B%E8%BD%BD)](https://chromewebstore.google.com/detail/proxy-switch-craft/geaaeblhngmdakfhfgdddcmfagbadogo)
+
 **语言:** [English](README.md) | [中文](README.zh.md)
 
 一个简单易用的Chrome浏览器代理管理扩展，用于替代SwitchyOmega进行代理设置管理和切换。
@@ -148,6 +150,19 @@ pnpm build
     - 配置服务器地址和端口后
     - 点击"自动检测"按钮
     - 系统会自动识别最佳协议类型
+
+## ⚠️ 安装插件时的Chrome告警说明
+
+安装本插件时，Chrome 可能会因代理相关功能弹出安全告警：
+
+![Chrome插件安装告警](./images/chrome_extension_install_warning.jpg)
+_Chrome浏览器针对代理权限插件的安装告警示例_
+
+**原因说明：**  
+由于本插件需要代理和网络相关权限，Chrome会自动弹出安全提示。这是浏览器的标准安全机制，并不代表插件不安全。
+
+**处理建议：**  
+如果您是通过上方官方 Chrome 网上应用店链接安装，可以放心继续安装。插件不会收集或上传任何用户数据。
 
 ## 注意事项
 
