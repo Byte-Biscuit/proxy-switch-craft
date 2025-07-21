@@ -163,9 +163,11 @@ When installing this extension, Chrome may display a warning due to its proxy ma
 _Chrome installation warning for proxy-related extensions_
 
 **Why this happens:**  
+
 Chrome shows this warning for extensions that request sensitive permissions (such as proxy/network control). This is a standard security measure and does not mean the extension is unsafe.
 
 **What you should do:**  
+
 If you installed from the official Chrome Web Store link above, you can safely proceed with the installation. The extension does not collect or upload any user data.
 
 ## Important Notes
