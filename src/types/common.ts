@@ -31,9 +31,12 @@ export const STORAGE_KEYS = {
     GENERAL_SETTINGS: 'generalSettings',
     PROXY_RULES: 'proxyRules'
 } as const
+// Number of chunks to split proxy rules into for storage
+export const PROXY_RULES_CHUNK_COUNT = 20
 
 // Proxy protocol types
 export type ProxyScheme = 'http' | 'https' | 'socks4' | 'socks5'
 
 // Supported proxy protocol list
 export const PROXY_SCHEMES: ProxyScheme[] = ['http', 'https', 'socks4', 'socks5']
+

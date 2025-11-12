@@ -8,7 +8,8 @@
 
 import type { GeneralSettings, ProxyRule } from './types/common'
 import { STORAGE_KEYS } from './types/common'
-import { syncStorage, localStorage } from '~utils/storage'
+import { localStorage, getProxyRules, setProxyRules } from '~utils/storage'
+import { getCurrentTabHostname } from "./utils/browser-api"
 
 // Global variables to store extension settings
 let generalSettings: GeneralSettings | null = null
@@ -37,37 +38,61 @@ interface FailedRequest {
     status?: number
 }
 
-let failedRequests: FailedRequest[] = []
+// Store failed requests grouped by hostname
+let failedRequestsByHostname: Map<string, FailedRequest[]> = new Map()
 let pendingRequests: Map<string, { startTime: number; url: string; hostname: string }> = new Map()
 
 /**
- * Update badge with failed requests count
+ * Update badge with failed requests count for specific hostname
+ * @param hostname - Hostname to show badge count for (optional, will use current tab if not provided)
  */
-function updateBadge() {
-    const count = failedRequests.length
-    if (count > 0) {
-        chrome.action.setBadgeText({ text: count.toString() })
-        chrome.action.setBadgeBackgroundColor({ color: '#FF0000' })
-    } else {
+async function updateBadge(hostname?: string) {
+    try {
+        // Get hostname from current tab if not provided
+        const targetHostname = hostname || await getCurrentTabHostname()
+
+        if (!targetHostname) {
+            chrome.action.setBadgeText({ text: '' })
+            return
+        }
+
+        // Get failed requests for current hostname (exact match)
+        const failedRequests = failedRequestsByHostname.get(targetHostname) || []
+        const count = failedRequests.length
+
+        if (count > 0) {
+            chrome.action.setBadgeText({ text: count.toString() })
+            chrome.action.setBadgeBackgroundColor({ color: '#FF0000' })
+        } else {
+            chrome.action.setBadgeText({ text: '' })
+        }
+    } catch (error) {
+        console.error('Error updating badge:', error)
         chrome.action.setBadgeText({ text: '' })
     }
 }
 
 /**
- * Add failed request to monitoring list
+ * Add failed request to monitoring list (grouped by hostname)
  */
-function addFailedRequest(request: FailedRequest) {
-    // Remove duplicates for same hostname
-    failedRequests = failedRequests.filter(req => req.hostname !== request.hostname)
+async function addFailedRequest(request: FailedRequest) {
+    const targetHostname = await getCurrentTabHostname()
+    if (!targetHostname) {
+        return
+    }
+    console.log("Adding failed request for hostname:", targetHostname);
+    // Get existing failed requests for this hostname
+    let failedRequests = failedRequestsByHostname.get(targetHostname) || []
 
     // Add new failed request
-    failedRequests.push(request)
-
-    // Keep only last 10 failed requests
-    if (failedRequests.length > 10) {
-        failedRequests = failedRequests.slice(-10)
+    if (failedRequests.find(r => r.hostname === request.hostname)) {
+        // Duplicate entry, skip
+        return
     }
-
+    failedRequests.push(request)
+    // Update the map
+    failedRequestsByHostname.set(targetHostname, failedRequests)
+    // Update badge for current tab
     updateBadge()
 }
 
@@ -77,9 +102,7 @@ function addFailedRequest(request: FailedRequest) {
 async function loadSettings() {
     try {
         generalSettings = await localStorage.get(STORAGE_KEYS.GENERAL_SETTINGS) || null
-        proxyRules = await syncStorage.get(STORAGE_KEYS.PROXY_RULES) || []
-        console.log('📦 Settings loaded:', { generalSettings, proxyRules })
-
+        proxyRules = await getProxyRules()
         // Configure selective proxy based on loaded rules
         await configureSelectiveProxy()
     } catch (error) {
@@ -129,7 +152,6 @@ function shouldUseProxy(url: string): boolean {
     if (!proxyRules || proxyRules.length === 0) {
         return false
     }
-
     return proxyRules.some(rule => matchWildcard(rule.pattern, url))
 }
 
@@ -261,7 +283,16 @@ function generatePacScript(): string {
 chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
         const shouldProxy = shouldUseProxy(details.url)
+
         const hostname = new URL(details.url).hostname
+        // Exclude localhost and 127.0.0.1 from proxy
+        if (
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname.startsWith('127.') // covers 127.x.x.x
+        ) {
+            return
+        }
 
         // Track request start time for non-proxy requests
         if (!shouldProxy) {
@@ -304,8 +335,36 @@ updateBadge()
  * Listen for storage changes and reconfigure proxy
  * Triggered when user updates settings in options page
  */
-chrome.storage.onChanged.addListener((changes) => {
-    if (changes[STORAGE_KEYS.GENERAL_SETTINGS] || changes[STORAGE_KEYS.PROXY_RULES]) {
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    // Only listen to sync storage changes (where proxy rules are stored)
+    if (areaName !== 'sync' && areaName !== 'local') {
+        return
+    }
+
+    let shouldReload = false
+
+    // Check if general settings changed (in local storage)
+    if (changes[STORAGE_KEYS.GENERAL_SETTINGS]) {
+        console.log('⚙️ General settings changed')
+        shouldReload = true
+    }
+
+    // Check if any proxy rules chunk changed (proxyRules_0 to proxyRules_19)
+    for (const key in changes) {
+        if (key.startsWith(`${STORAGE_KEYS.PROXY_RULES}_`)) {
+            console.log(`⚙️ Proxy rules changed (${key})`)
+            shouldReload = true
+            break
+        }
+    }
+
+    // Also check for legacy single key (for migration compatibility)
+    if (changes[STORAGE_KEYS.PROXY_RULES]) {
+        console.log('⚙️ Legacy proxy rules changed')
+        shouldReload = true
+    }
+
+    if (shouldReload) {
         console.log('⚙️ Settings changed, reloading and reconfiguring proxy...')
         loadSettings()
     }
@@ -408,40 +467,84 @@ chrome.webRequest.onErrorOccurred.addListener(
  * Handle messages from popup
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'getFailedRequests') {
-        sendResponse({ failedRequests })
-    } else if (request.action === 'clearFailedRequests') {
-        failedRequests = []
-        updateBadge()
-        sendResponse({ success: true })
-    } else if (request.action === 'addToProxyRules') {
-        const { hostname } = request
-        if (hostname) {
-            // Check if rule already exists
-            const exists = proxyRules.some(rule => rule.pattern === hostname)
-            if (exists) {
-                sendResponse({ success: false, message: 'Rule already exists' })
-                return
+    (async () => {
+        let targetHostname: string | null = null
+
+        if (sender.tab?.url) {
+            try {
+                targetHostname = new URL(sender.tab.url).hostname
+            } catch (error) {
+                console.error('Error parsing sender tab URL:', error)
             }
-            // Add to proxy rules
-            const newRule = {
-                id: Date.now().toString(),
-                pattern: hostname
-            }
-            proxyRules.push(newRule)
-
-            syncStorage.set(STORAGE_KEYS.PROXY_RULES, proxyRules)
-
-            // Remove from failed requests
-            failedRequests = failedRequests.filter(req => req.hostname !== hostname)
-            updateBadge()
-
-            // Reconfigure proxy
-            configureSelectiveProxy()
-
-            sendResponse({ success: true })
         }
-    }
+        if (!targetHostname) {
+            targetHostname = await getCurrentTabHostname()
+        }
+        console.log("Target hostname for message:", targetHostname);
+        const action = request.action;
+        console.log("Received message action:", action);
+        switch (action) {
+            case 'getFailedRequests':
+                const failedRequests: FailedRequest[] = failedRequestsByHostname.get(targetHostname) || [];
+                console.log("Returning failed requests for hostname:", targetHostname, failedRequests);
+                sendResponse({ failedRequests: failedRequests });
+                break;
+            case 'clearFailedRequests':
+                failedRequestsByHostname.delete(targetHostname);
+                updateBadge();
+                sendResponse({ success: true });
+                break;
+            case 'addToProxyRules':
+                const { hostname } = request;
+                if (hostname) {
+                    // Check if rule already exists
+                    const exists = proxyRules.some(rule => rule.pattern === hostname);
+                    if (exists) {
+                        sendResponse({ success: false, message: 'Rule already exists' });
+                        return;
+                    }
+                    // Add to proxy rules
+                    const newRule = {
+                        id: Date.now().toString(),
+                        pattern: hostname
+                    };
+                    proxyRules.push(newRule);
 
-    return true // Keep message channel open for async response
+                    await setProxyRules(proxyRules);
+
+                    // Remove from failed requests for this hostname
+                    failedRequestsByHostname.delete(targetHostname);
+                    updateBadge();
+
+                    // Reconfigure proxy
+                    configureSelectiveProxy();
+
+                    sendResponse({ success: true });
+                }
+                break;
+            default:
+                console.warn('Unknown action:', action);
+        }
+    })();
+    // Keep message channel open for async response
+    return true
+})
+
+/**
+ * Listen for tab activation (switching tabs)
+ * Update badge to show failed requests count for the newly active tab
+ */
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    await updateBadge()
+})
+
+/**
+ * Listen for tab URL updates
+ * Update badge when user navigates to a different URL in the same tab
+ */
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Only update when URL changes and tab is active
+    if (changeInfo.url && tab.active) {
+        await updateBadge()
+    }
 })

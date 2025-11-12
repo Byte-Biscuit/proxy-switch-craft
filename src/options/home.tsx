@@ -35,7 +35,7 @@ import {
 import type { SelectChangeEvent } from "@mui/material/Select"
 import { useEffect, useState } from "react"
 
-import { localStorage, syncStorage } from "~utils/storage"
+import { localStorage, getProxyRules, setProxyRules } from "~utils/storage"
 
 import type { GeneralSettings, ProxyRule } from "../types/common"
 import { PROXY_SCHEMES, STORAGE_KEYS } from "../types/common"
@@ -96,9 +96,7 @@ function Options() {
             if (general) {
                 setGeneralSettings(general)
             }
-            const rules = await syncStorage.get<ProxyRule[]>(
-                STORAGE_KEYS.PROXY_RULES
-            )
+            const rules = await getProxyRules()
             if (rules) {
                 setProxyRules(rules)
             }
@@ -113,7 +111,7 @@ function Options() {
                 STORAGE_KEYS.GENERAL_SETTINGS,
                 generalSettings
             )
-            await syncStorage.set(STORAGE_KEYS.PROXY_RULES, proxyRules)
+            await setProxyRules(proxyRules)
             setSnackbarMessage(t("settingsSaved"))
             setSnackbarOpen(true)
         } catch (error) {
