@@ -11,7 +11,6 @@ import {
 } from "@mui/material"
 import { useEffect, useState } from "react"
 
-import { getCurrentTabHostname } from "./utils/browser-api"
 import { t } from "./utils/i18n"
 
 interface FailedRequest {

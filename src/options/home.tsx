@@ -35,7 +35,11 @@ import {
 import type { SelectChangeEvent } from "@mui/material/Select"
 import { useEffect, useState } from "react"
 
-import { localStorage, getProxyRules, setProxyRules } from "~utils/storage"
+import {
+    getProxyRules,
+    localStorage,
+    setProxyRules as setProxyRules2Store
+} from "~utils/storage"
 
 import type { GeneralSettings, ProxyRule } from "../types/common"
 import { PROXY_SCHEMES, STORAGE_KEYS } from "../types/common"
@@ -88,6 +92,18 @@ function Options() {
         loadSettings()
     }, [])
 
+    useEffect(() => {
+        setProxyRules2Store(proxyRules)
+            .then(() => {
+                chrome.runtime.sendMessage({
+                    action: "configureSelectiveProxy"
+                })
+            })
+            .catch((error) => {
+                console.error("Error saving proxy rules:", error)
+            })
+    }, [proxyRules])
+
     const loadSettings = async () => {
         try {
             const general = await localStorage.get<GeneralSettings>(
@@ -111,7 +127,6 @@ function Options() {
                 STORAGE_KEYS.GENERAL_SETTINGS,
                 generalSettings
             )
-            await setProxyRules(proxyRules)
             setSnackbarMessage(t("settingsSaved"))
             setSnackbarOpen(true)
         } catch (error) {
@@ -542,12 +557,13 @@ function Options() {
                                 {t("reload")}
                             </Button>
                             <Button
-                                variant="outlined"
+                                variant="contained"
                                 size="small"
                                 startIcon={<Add />}
                                 onClick={handleAddRule}>
                                 {t("addRule")}
                             </Button>
+                            {/** 
                             <Button
                                 variant="contained"
                                 size="small"
@@ -555,6 +571,7 @@ function Options() {
                                 onClick={saveSettings}>
                                 {t("saveRules")}
                             </Button>
+                            */}
                         </Box>
                     </Box>
 

@@ -522,6 +522,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     sendResponse({ success: true });
                 }
                 break;
+            case 'configureSelectiveProxy':
+                const rules = await getProxyRules();
+                proxyRules = rules;
+                await configureSelectiveProxy();
+                sendResponse({ success: true });
+                break;
             default:
                 console.warn('Unknown action:', action);
         }
