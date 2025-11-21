@@ -11,25 +11,36 @@ import {
 } from "@mui/material"
 import { useEffect, useState } from "react"
 
+import { type FailedRequest } from "./types/common"
 import { t } from "./utils/i18n"
-
-interface FailedRequest {
-    url: string
-    hostname: string
-    responseTime?: number
-    error?: string
-    timestamp: number
-    status?: number
-}
 
 function IndexPopup() {
     const [failedRequests, setFailedRequests] = useState<FailedRequest[]>([])
     const [loading, setLoading] = useState(true)
 
+    const getCurrentTabHostname = async () => {
+        const [tab] = await chrome.tabs.query({
+            active: true,
+            currentWindow: true
+        })
+        let currentTabHostname = ""
+
+        if (tab?.url) {
+            try {
+                currentTabHostname = new URL(tab.url).hostname
+            } catch (error) {
+                console.error("Error parsing tab URL:", error)
+            }
+        }
+        return currentTabHostname
+    }
+
     const loadFailedRequests = async () => {
         try {
+            const currentTabHostname = await getCurrentTabHostname()
             const response = await chrome.runtime.sendMessage({
-                action: "getFailedRequests"
+                action: "getFailedRequests",
+                currentTabHostname
             })
             setFailedRequests(response.failedRequests || [])
         } catch (error) {
@@ -41,8 +52,10 @@ function IndexPopup() {
 
     const clearFailedRequests = async () => {
         try {
+            const currentTabHostname = await getCurrentTabHostname()
             await chrome.runtime.sendMessage({
-                action: "clearFailedRequests"
+                action: "clearFailedRequests",
+                currentTabHostname
             })
             setFailedRequests([])
             // Close the popup page
@@ -54,12 +67,26 @@ function IndexPopup() {
 
     const addToProxyRules = async (hostname: string) => {
         try {
+            const currentTabHostname = await getCurrentTabHostname()
+            // Send message to background to add proxy rule
             await chrome.runtime.sendMessage({
-                action: "addToProxyRules",
-                hostname: hostname
+                action: "addProxyRules",
+                hostnames: [hostname],
+                currentTabHostname
             })
-            // Refresh the list
-            loadFailedRequests()
+            // Reconfigure proxy
+            await chrome.runtime.sendMessage({
+                action: "configureSelectiveProxy"
+            })
+            await chrome.runtime.sendMessage({
+                action: "updateBadge",
+                currentTabHostname
+            })
+            // Clear failed requests asynchronously to prevent UI confusion where failed requests still appear after adding proxy rules
+            const updatedFailedRequests = failedRequests.filter(
+                (request) => request.hostname !== hostname
+            )
+            setFailedRequests(updatedFailedRequests)
         } catch (error) {
             console.error("Error adding to proxy rules:", error)
         }
@@ -71,15 +98,21 @@ function IndexPopup() {
             const uniqueHostnames = [
                 ...new Set(failedRequests.map((request) => request.hostname))
             ]
-
-            // Batch add to proxy rules
-            for (const hostname of uniqueHostnames) {
-                await chrome.runtime.sendMessage({
-                    action: "addToProxyRules",
-                    hostname: hostname
-                })
-            }
-
+            const currentTabHostname = await getCurrentTabHostname()
+            await chrome.runtime.sendMessage({
+                action: "addProxyRules",
+                hostnames: uniqueHostnames,
+                currentTabHostname
+            })
+            // Reconfigure proxy
+            await chrome.runtime.sendMessage({
+                action: "configureSelectiveProxy"
+            })
+            // Update badge
+            await chrome.runtime.sendMessage({
+                action: "updateBadge",
+                currentTabHostname
+            })
             // Refresh current tab
             chrome.tabs.query(
                 {
@@ -213,23 +246,28 @@ function IndexPopup() {
                                                 size="small"
                                                 variant="outlined"
                                                 startIcon={<Add />}
-                                                onClick={async () => {
-                                                    await addToProxyRules(
+                                                onClick={() => {
+                                                    addToProxyRules(
                                                         request.hostname
-                                                    )
-                                                    chrome.tabs.query(
-                                                        {
-                                                            active: true,
-                                                            currentWindow: true
-                                                        },
-                                                        (tabs) => {
-                                                            if (tabs[0]?.id) {
-                                                                chrome.tabs.reload(
-                                                                    tabs[0].id
-                                                                )
+                                                    ).finally(() => {
+                                                        chrome.tabs.query(
+                                                            {
+                                                                active: true,
+                                                                currentWindow:
+                                                                    true
+                                                            },
+                                                            (tabs) => {
+                                                                if (
+                                                                    tabs[0]?.id
+                                                                ) {
+                                                                    chrome.tabs.reload(
+                                                                        tabs[0]
+                                                                            .id
+                                                                    )
+                                                                }
                                                             }
-                                                        }
-                                                    )
+                                                        )
+                                                    })
                                                 }}
                                                 sx={{ ml: 1 }}>
                                                 {t("addToProxy")}

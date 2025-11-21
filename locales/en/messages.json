@@ -246,5 +246,9 @@
     "reload": {
         "message": "Reload",
         "description": "Reload button"
+    },
+    "rulesTotal": {
+        "message": "rules",
+        "description": "Total rules count label"
     }
 }

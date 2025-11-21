@@ -35,14 +35,13 @@ import {
 import type { SelectChangeEvent } from "@mui/material/Select"
 import { useEffect, useState } from "react"
 
-import {
-    getProxyRules,
-    localStorage,
-    setProxyRules as setProxyRules2Store
-} from "~utils/storage"
+import generalSettingsService from "~general-settings-service"
+import proxyRuleService from "~proxy-rule-service"
+import requestMonitorService from "~request-monitor-service"
+import { generateId } from "~utils/util"
 
 import type { GeneralSettings, ProxyRule } from "../types/common"
-import { PROXY_SCHEMES, STORAGE_KEYS } from "../types/common"
+import { PROXY_SCHEMES } from "../types/common"
 import { t } from "../utils/i18n"
 
 interface TabPanelProps {
@@ -89,51 +88,36 @@ function Options() {
 
     // Load settings from storage on component mount
     useEffect(() => {
-        loadSettings()
+        const generalSettingSync = async () => {
+            try {
+                const generalSettings =
+                    await generalSettingsService.getSettings()
+                if (generalSettings) {
+                    setGeneralSettings(generalSettings)
+                }
+            } catch (error) {
+                console.error("Error loading settings:", error)
+            }
+        }
+        generalSettingSync()
     }, [])
 
     useEffect(() => {
-        setProxyRules2Store(proxyRules)
-            .then(() => {
-                chrome.runtime.sendMessage({
-                    action: "configureSelectiveProxy"
-                })
-            })
-            .catch((error) => {
-                console.error("Error saving proxy rules:", error)
-            })
-    }, [proxyRules])
-
-    const loadSettings = async () => {
-        try {
-            const general = await localStorage.get<GeneralSettings>(
-                STORAGE_KEYS.GENERAL_SETTINGS
-            )
-            if (general) {
-                setGeneralSettings(general)
-            }
-            const rules = await getProxyRules()
-            if (rules) {
-                setProxyRules(rules)
-            }
-        } catch (error) {
-            console.error("Error loading settings:", error)
-        }
-    }
+        proxyRuleService.getRules().then((rules) => setProxyRules(rules))
+    }, [])
 
     const saveSettings = async () => {
-        try {
-            await localStorage.set(
-                STORAGE_KEYS.GENERAL_SETTINGS,
-                generalSettings
-            )
-            setSnackbarMessage(t("settingsSaved"))
-            setSnackbarOpen(true)
-        } catch (error) {
-            console.error("Error saving settings:", error)
-            setSnackbarMessage(t("saveSettingsFailed"))
-            setSnackbarOpen(true)
-        }
+        generalSettingsService
+            .saveSettings(generalSettings)
+            .then(() => {
+                setSnackbarMessage(t("settingsSaved"))
+                setSnackbarOpen(true)
+            })
+            .catch((error) => {
+                console.error("Error saving settings:", error)
+                setSnackbarMessage(t("saveSettingsFailed"))
+                setSnackbarOpen(true)
+            })
     }
 
     const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -160,58 +144,6 @@ function Options() {
             proxyServerScheme: event.target.value
         }))
     }
-
-    const autoDetectScheme = async () => {
-        const address = generalSettings.proxyServerAddress.toLowerCase()
-        const port = generalSettings.proxyServerPort
-
-        // Try network detection based on port number and protocol to confirm proxy server protocol
-        // Try protocols in select one by one to detect which is available
-        let detectedScheme = PROXY_SCHEMES[0] // Default to use the first protocol
-        let found = false
-
-        for (const scheme of PROXY_SCHEMES) {
-            // Can only simulate detection here, actual socks4/5 proxies cannot be directly detected by browser
-            // Can only detect http/https, socks4/5 can only be guessed based on port
-            if (scheme === "http" || scheme === "https") {
-                try {
-                    // Try to connect using fetch with specified protocol
-                    const url = scheme + "://" + address + ":" + port
-                    // Can only detect if http/https protocol can connect
-                    // Due to browser same-origin policy, actual fetch may fail
-                    // Just do a simple attempt here
-                    await fetch(url, { method: "HEAD", mode: "no-cors" })
-                    detectedScheme = scheme
-                    found = true
-                    break
-                } catch {
-                    // ignore
-                }
-            }
-        }
-
-        // If http/https cannot be detected, guess socks4/5 based on port
-        if (!found) {
-            if (port === 1080 || port === 9050) {
-                detectedScheme = "socks5"
-            } else if (port === 1081) {
-                detectedScheme = "socks4"
-            } else if (port === 443 || port === 8443) {
-                detectedScheme = "https"
-            } else {
-                detectedScheme = "http"
-            }
-        }
-
-        setGeneralSettings((prev) => ({
-            ...prev,
-            proxyServerScheme: detectedScheme
-        }))
-
-        setSnackbarMessage(t("autoDetectScheme"))
-        setSnackbarOpen(true)
-    }
-
     const handleAddRule = () => {
         setEditingRule(null)
         setNewRulePattern("")
@@ -225,9 +157,13 @@ function Options() {
     }
 
     const handleDeleteRule = (id: string) => {
-        setProxyRules((prev) => prev.filter((rule) => rule.id !== id))
+        proxyRuleService
+            .deleteRule(id)
+            .then((rules) => setProxyRules(rules))
+            .finally(() => {
+                requestMonitorService.configureSelectiveProxy()
+            })
     }
-
     const handleSaveRule = () => {
         if (!newRulePattern.trim()) {
             setSnackbarMessage(t("enterRulePattern"))
@@ -236,14 +172,18 @@ function Options() {
         }
 
         if (editingRule) {
-            // Edit existing rule
-            setProxyRules((prev) =>
-                prev.map((rule) =>
-                    rule.id === editingRule.id
-                        ? { ...rule, pattern: newRulePattern }
-                        : rule
-                )
-            )
+            proxyRuleService
+                .updateProxyRule(editingRule.id, {
+                    pattern: newRulePattern
+                })
+                .then(() => {
+                    proxyRuleService
+                        .getRules()
+                        .then((rules) => setProxyRules(rules))
+                })
+                .finally(() => {
+                    requestMonitorService.configureSelectiveProxy()
+                })
         } else {
             const exists = proxyRules.some(
                 (rule) => rule.pattern === newRulePattern
@@ -253,10 +193,15 @@ function Options() {
             }
             // Add new rule
             const newRule: ProxyRule = {
-                id: Date.now().toString(),
+                id: generateId(),
                 pattern: newRulePattern
             }
-            setProxyRules((prev) => [...prev, newRule])
+            proxyRuleService
+                .addRule(newRule)
+                .then((rules) => setProxyRules(rules))
+                .finally(() => {
+                    requestMonitorService.configureSelectiveProxy()
+                })
         }
 
         setDialogOpen(false)
@@ -306,41 +251,120 @@ function Options() {
         setTesting(true)
         setTestResult(null)
 
-        try {
-            const startTime = Date.now()
+        // Save original proxy settings
+        let originalProxyConfig: chrome.proxy.ProxyConfig | null = null
+        let authListener: ((details: any) => any) | null = null
 
-            // Construct proxy configuration
-            const proxyConfig = {
+        try {
+            // Get current proxy configuration
+            originalProxyConfig = await new Promise<chrome.proxy.ProxyConfig>(
+                (resolve) => {
+                    chrome.proxy.settings.get({}, (config) => {
+                        resolve(config.value)
+                    })
+                }
+            )
+
+            // Construct test proxy configuration
+            const testProxyConfig: chrome.proxy.ProxyConfig = {
                 mode: "fixed_servers",
                 rules: {
                     singleProxy: {
                         scheme: generalSettings.proxyServerScheme,
                         host: generalSettings.proxyServerAddress,
                         port: generalSettings.proxyServerPort
-                    }
+                    },
+                    bypassList: ["<local>", "localhost", "127.0.0.1"]
                 }
             }
 
-            // Simulate proxy test - actual implementation needs to use chrome.proxy API
-            // Here provides a basic test logic
-            const testPromise = new Promise<void>((resolve, reject) => {
-                const img = new Image()
+            // Set up proxy authentication if credentials are provided
+            if (
+                generalSettings.proxyUsername &&
+                generalSettings.proxyPassword
+            ) {
+                authListener = (
+                    details: chrome.webRequest.WebAuthenticationChallengeDetails
+                ) => {
+                    if (
+                        details.isProxy &&
+                        details.challenger.host ===
+                            generalSettings.proxyServerAddress
+                    ) {
+                        return {
+                            authCredentials: {
+                                username: generalSettings.proxyUsername,
+                                password: generalSettings.proxyPassword
+                            }
+                        }
+                    }
+                    return {}
+                }
+
+                chrome.webRequest.onAuthRequired.addListener(
+                    authListener,
+                    { urls: ["<all_urls>"] },
+                    ["blocking"]
+                )
+            }
+
+            // Apply test proxy configuration
+            await new Promise<void>((resolve, reject) => {
+                chrome.proxy.settings.set(
+                    { value: testProxyConfig, scope: "regular" },
+                    () => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message))
+                        } else {
+                            resolve()
+                        }
+                    }
+                )
+            })
+
+            // Wait a moment for proxy to take effect
+            await new Promise((resolve) => setTimeout(resolve, 500))
+
+            const startTime = Date.now()
+
+            // Test connection through proxy using fetch
+            const testPromise = new Promise<void>(async (resolve, reject) => {
+                let settled = false
                 const timeout = setTimeout(() => {
-                    reject(new Error(t("testTimeout")))
+                    if (!settled) {
+                        settled = true
+                        reject(new Error(t("testTimeout")))
+                    }
                 }, 10000)
 
-                img.onload = () => {
-                    clearTimeout(timeout)
-                    resolve()
-                }
+                try {
+                    const response = await fetch(
+                        testTarget + "/favicon.ico?" + Date.now(),
+                        {
+                            method: "GET",
+                            cache: "no-store"
+                        }
+                    )
 
-                img.onerror = () => {
-                    clearTimeout(timeout)
-                    reject(new Error(t("connectionFailed")))
-                }
+                    if (!settled) {
+                        settled = true
+                        clearTimeout(timeout)
 
-                // Try to load a small image to test connection
-                img.src = testTarget + "/favicon.ico?" + Date.now()
+                        // Accept any response (2xx, 4xx, 5xx) as success
+                        // This means proxy connection works even if resource doesn't exist
+                        if (response.status >= 200 && response.status < 600) {
+                            resolve()
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`))
+                        }
+                    }
+                } catch (error) {
+                    if (!settled) {
+                        settled = true
+                        clearTimeout(timeout)
+                        reject(new Error(t("connectionFailed")))
+                    }
+                }
             })
 
             await testPromise
@@ -359,111 +383,120 @@ function Options() {
             setSnackbarMessage(t("proxyTestFailed"))
             setSnackbarOpen(true)
         } finally {
+            // Remove auth listener if it was added
+            if (authListener) {
+                chrome.webRequest.onAuthRequired.removeListener(authListener)
+            }
+
+            // Restore original proxy configuration
+            if (originalProxyConfig) {
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        chrome.proxy.settings.set(
+                            { value: originalProxyConfig, scope: "regular" },
+                            () => {
+                                if (chrome.runtime.lastError) {
+                                    reject(
+                                        new Error(
+                                            chrome.runtime.lastError.message
+                                        )
+                                    )
+                                } else {
+                                    resolve()
+                                }
+                            }
+                        )
+                    })
+                } catch (restoreError) {
+                    console.error(
+                        "Failed to restore proxy settings:",
+                        restoreError
+                    )
+                    setSnackbarMessage(t("failedToRestoreProxy"))
+                    setSnackbarOpen(true)
+                }
+            }
             setTesting(false)
         }
     }
 
     return (
-        <Container maxWidth="lg" sx={{ mt: 2, mb: 2 }}>
-            <Paper elevation={2} sx={{ p: 2 }}>
-                <Typography variant="h5" gutterBottom>
-                    {t("settingsTitle")}
-                </Typography>
+        <>
+            <Container maxWidth="lg" sx={{ mt: 2, mb: 2 }}>
+                <Paper elevation={2} sx={{ p: 2 }}>
+                    <Typography variant="h5" gutterBottom>
+                        {t("settingsTitle")}
+                    </Typography>
 
-                <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-                    <Tabs
-                        value={tabValue}
-                        onChange={handleTabChange}
-                        variant="fullWidth">
-                        <Tab label={t("generalSettings")} />
-                        <Tab label={t("proxyRulesDetails")} />
-                    </Tabs>
-                </Box>
-
-                <TabPanel value={tabValue} index={0}>
-                    <Box
-                        sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            mb: 2
-                        }}>
-                        <Typography variant="h6">
-                            {t("generalSettings")}
-                        </Typography>
-                        <Box sx={{ display: "flex", gap: 1 }}>
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                startIcon={<NetworkCheck />}
-                                onClick={handleTestProxy}
-                                disabled={
-                                    !generalSettings.proxyServerAddress ||
-                                    !generalSettings.proxyServerPort
-                                }>
-                                {t("testProxyServer")}
-                            </Button>
-                            <Button
-                                variant="contained"
-                                size="small"
-                                startIcon={<Save />}
-                                onClick={saveSettings}>
-                                {t("saveGeneralSettings")}
-                            </Button>
-                        </Box>
+                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+                        <Tabs
+                            value={tabValue}
+                            onChange={handleTabChange}
+                            variant="fullWidth">
+                            <Tab label={t("generalSettings")} />
+                            <Tab label={t("proxyRulesDetails")} />
+                        </Tabs>
                     </Box>
 
-                    <Box component="form" sx={{ mt: 2 }}>
-                        <Typography
-                            variant="subtitle2"
-                            sx={{ mb: 2, color: "text.secondary" }}>
-                            {t("networkMonitoring")}
-                        </Typography>
+                    <TabPanel value={tabValue} index={0}>
+                        <Box
+                            sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                mb: 2
+                            }}>
+                            <Typography variant="h6">
+                                {t("generalSettings")}
+                            </Typography>
+                            <Box sx={{ display: "flex", gap: 1 }}>
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<NetworkCheck />}
+                                    onClick={handleTestProxy}
+                                    disabled={
+                                        !generalSettings.proxyServerAddress ||
+                                        !generalSettings.proxyServerPort
+                                    }>
+                                    {t("testProxyServer")}
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<Save />}
+                                    onClick={saveSettings}>
+                                    {t("saveGeneralSettings")}
+                                </Button>
+                            </Box>
+                        </Box>
 
-                        <TextField
-                            fullWidth
-                            label={t("responseTimeThreshold")}
-                            type="number"
-                            value={generalSettings.responseTimeThreshold}
-                            onChange={handleGeneralSettingChange(
-                                "responseTimeThreshold"
-                            )}
-                            margin="normal"
-                            size="small"
-                            helperText={t("responseTimeThresholdHelper")}
-                        />
+                        <Box component="form" sx={{ mt: 2 }}>
+                            <Typography
+                                variant="subtitle2"
+                                sx={{ mb: 2, color: "text.secondary" }}>
+                                {t("networkMonitoring")}
+                            </Typography>
 
-                        <Typography
-                            variant="subtitle2"
-                            sx={{ mt: 3, mb: 2, color: "text.secondary" }}>
-                            {t("proxyServerSettings")}
-                        </Typography>
+                            <TextField
+                                fullWidth
+                                label={t("responseTimeThreshold")}
+                                type="number"
+                                value={generalSettings.responseTimeThreshold}
+                                onChange={handleGeneralSettingChange(
+                                    "responseTimeThreshold"
+                                )}
+                                margin="normal"
+                                size="small"
+                                helperText={t("responseTimeThresholdHelper")}
+                            />
 
-                        <TextField
-                            fullWidth
-                            label={t("proxyServerAddress")}
-                            value={generalSettings.proxyServerAddress}
-                            onChange={handleGeneralSettingChange(
-                                "proxyServerAddress"
-                            )}
-                            margin="normal"
-                            size="small"
-                            helperText={t("proxyServerAddressHelper")}
-                        />
+                            <Typography
+                                variant="subtitle2"
+                                sx={{ mt: 2, mb: 2, color: "text.secondary" }}>
+                                {t("proxyServerSettings")}
+                            </Typography>
 
-                        <TextField
-                            fullWidth
-                            label={t("proxyServerPort")}
-                            type="number"
-                            value={generalSettings.proxyServerPort}
-                            onChange={handleGeneralSettingChange(
-                                "proxyServerPort"
-                            )}
-                            margin="normal"
-                            size="small"
-                        />
-
-                        <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
                             <FormControl size="small" sx={{ minWidth: 200 }}>
                                 <InputLabel>{t("proxyProtocol")}</InputLabel>
                                 <Select
@@ -477,245 +510,306 @@ function Options() {
                                     ))}
                                 </Select>
                             </FormControl>
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                onClick={autoDetectScheme}
-                                disabled={!generalSettings.proxyServerPort}>
-                                {t("autoDetect")}
-                            </Button>
-                        </Box>
 
-                        <Typography
-                            variant="subtitle2"
-                            sx={{ mt: 3, mb: 2, color: "text.secondary" }}>
-                            {t("proxyAuthSettings")}
-                        </Typography>
-
-                        <TextField
-                            fullWidth
-                            label={t("username")}
-                            value={generalSettings.proxyUsername}
-                            onChange={handleGeneralSettingChange(
-                                "proxyUsername"
-                            )}
-                            margin="normal"
-                            size="small"
-                        />
-
-                        <TextField
-                            fullWidth
-                            label={t("password")}
-                            type="password"
-                            value={generalSettings.proxyPassword}
-                            onChange={handleGeneralSettingChange(
-                                "proxyPassword"
-                            )}
-                            margin="normal"
-                            size="small"
-                        />
-                    </Box>
-                </TabPanel>
-
-                <TabPanel value={tabValue} index={1}>
-                    <Box
-                        sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            mb: 2
-                        }}>
-                        <Typography variant="h6">
-                            {t("proxyRulesDetails")}
-                        </Typography>
-                        <Box sx={{ display: "flex", gap: 2 }}>
                             <TextField
-                                label={t("searchRules")}
-                                value={searchTerm}
-                                onChange={handleSearchChange}
+                                fullWidth
+                                label={t("proxyServerAddress")}
+                                value={generalSettings.proxyServerAddress}
+                                onChange={handleGeneralSettingChange(
+                                    "proxyServerAddress"
+                                )}
+                                margin="normal"
                                 size="small"
-                                placeholder={t("searchRulesHelper")}
-                                variant="outlined"
-                                sx={{
-                                    minWidth: 400,
-                                    "& .MuiInputBase-root": {
-                                        height: "36px"
-                                    },
-                                    "& .MuiInputLabel-root": {
-                                        top: "-2px"
-                                    },
-                                    "& .MuiInputLabel-shrink": {
-                                        top: "0px"
-                                    }
-                                }}
+                                helperText={t("proxyServerAddressHelper")}
                             />
-                            <Button
-                                variant="outlined"
+
+                            <TextField
+                                fullWidth
+                                label={t("proxyServerPort")}
+                                type="number"
+                                value={generalSettings.proxyServerPort}
+                                onChange={handleGeneralSettingChange(
+                                    "proxyServerPort"
+                                )}
+                                margin="normal"
                                 size="small"
-                                startIcon={<Refresh />}
-                                onClick={loadSettings}>
-                                {t("reload")}
-                            </Button>
-                            <Button
-                                variant="contained"
+                            />
+
+                            <Typography
+                                variant="subtitle2"
+                                sx={{ mt: 2, mb: 1, color: "text.secondary" }}>
+                                {t("proxyAuthSettings")}
+                            </Typography>
+
+                            <TextField
+                                fullWidth
+                                label={t("username")}
+                                value={generalSettings.proxyUsername}
+                                onChange={handleGeneralSettingChange(
+                                    "proxyUsername"
+                                )}
+                                margin="normal"
                                 size="small"
-                                startIcon={<Add />}
-                                onClick={handleAddRule}>
-                                {t("addRule")}
-                            </Button>
-                            {/** 
-                            <Button
-                                variant="contained"
+                            />
+
+                            <TextField
+                                fullWidth
+                                label={t("password")}
+                                type="password"
+                                value={generalSettings.proxyPassword}
+                                onChange={handleGeneralSettingChange(
+                                    "proxyPassword"
+                                )}
+                                margin="normal"
                                 size="small"
-                                startIcon={<Save />}
-                                onClick={saveSettings}>
-                                {t("saveRules")}
-                            </Button>
-                            */}
+                            />
                         </Box>
-                    </Box>
+                    </TabPanel>
 
-                    {filteredProxyRules.length === 0 ? (
-                        <Alert severity="info">
-                            {searchTerm
-                                ? t("noRulesFoundMessage")
-                                : t("noRulesMessage")}
-                        </Alert>
-                    ) : (
-                        <List dense>
-                            {filteredProxyRules.map((rule) => (
-                                <ListItem key={rule.id} divider>
-                                    <ListItemText
-                                        primary={rule.pattern}
-                                        secondary={t("proxyRulePattern")}
-                                    />
-                                    <ListItemSecondaryAction>
-                                        <IconButton
-                                            edge="end"
-                                            aria-label="edit"
-                                            size="small"
-                                            onClick={() => handleEditRule(rule)}
-                                            sx={{ mr: 1 }}>
-                                            <Edit />
-                                        </IconButton>
-                                        <IconButton
-                                            edge="end"
-                                            aria-label="delete"
-                                            size="small"
-                                            onClick={() =>
-                                                handleDeleteRule(rule.id)
-                                            }>
-                                            <Delete />
-                                        </IconButton>
-                                    </ListItemSecondaryAction>
-                                </ListItem>
-                            ))}
-                        </List>
-                    )}
-                </TabPanel>
-
-                {/* Add/Edit Rule Dialog */}
-                <Dialog
-                    open={dialogOpen}
-                    onClose={handleCloseDialog}
-                    maxWidth="sm"
-                    fullWidth>
-                    <DialogTitle>
-                        {editingRule ? t("editRule") : t("addRuleDialog")}
-                    </DialogTitle>
-                    <DialogContent>
-                        <TextField
-                            autoFocus
-                            margin="dense"
-                            label={t("rulePattern")}
-                            fullWidth
-                            size="small"
-                            value={newRulePattern}
-                            onChange={(e) => setNewRulePattern(e.target.value)}
-                            placeholder="*.google.com"
-                            helperText={t("rulePatternHelper")}
-                        />
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseDialog} size="small">
-                            {t("cancel")}
-                        </Button>
-                        <Button
-                            onClick={handleSaveRule}
-                            variant="contained"
-                            size="small">
-                            {editingRule ? t("save") : t("add")}
-                        </Button>
-                    </DialogActions>
-                </Dialog>
-
-                {/* Test Proxy Dialog */}
-                <Dialog
-                    open={testDialogOpen}
-                    onClose={handleCloseTestDialog}
-                    maxWidth="sm"
-                    fullWidth>
-                    <DialogTitle>{t("testProxyDialog")}</DialogTitle>
-                    <DialogContent>
-                        <TextField
-                            autoFocus
-                            margin="dense"
-                            label={t("testTargetUrl")}
-                            fullWidth
-                            size="small"
-                            value={testTarget}
-                            onChange={(e) => setTestTarget(e.target.value)}
-                            placeholder="https://www.google.com"
-                            helperText={t("testTargetUrlHelper")}
-                        />
-                        {testResult && (
+                    <TabPanel value={tabValue} index={1}>
+                        <Box
+                            sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                mb: 2
+                            }}>
                             <Box
                                 sx={{
-                                    mt: 2,
-                                    p: 1,
-                                    bgcolor: testResult.startsWith("✅")
-                                        ? "success.light"
-                                        : "error.light",
-                                    borderRadius: 1
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 1
                                 }}>
+                                <Typography variant="h6">
+                                    {t("proxyRulesDetails")}
+                                </Typography>
                                 <Typography
                                     variant="body2"
-                                    color={
-                                        testResult.startsWith("✅")
-                                            ? "success.contrastText"
-                                            : "error.contrastText"
-                                    }>
-                                    {testResult}
+                                    color="text.secondary">
+                                    ({proxyRules.length} {t("rulesTotal")})
                                 </Typography>
                             </Box>
-                        )}
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseTestDialog} size="small">
-                            {t("close")}
-                        </Button>
-                        <Button
-                            onClick={performProxyTest}
-                            variant="contained"
-                            size="small"
-                            disabled={testing || !testTarget.trim()}
-                            startIcon={
-                                testing ? <CircularProgress size={16} /> : null
-                            }>
-                            {testing ? t("testing") : t("startTest")}
-                        </Button>
-                    </DialogActions>
-                </Dialog>
+                            <Box sx={{ display: "flex", gap: 2 }}>
+                                <TextField
+                                    label={t("searchRules")}
+                                    value={searchTerm}
+                                    onChange={handleSearchChange}
+                                    size="small"
+                                    placeholder={t("searchRulesHelper")}
+                                    variant="outlined"
+                                    sx={{
+                                        minWidth: 400,
+                                        "& .MuiInputBase-root": {
+                                            height: "36px"
+                                        },
+                                        "& .MuiInputLabel-root": {
+                                            top: "-2px"
+                                        },
+                                        "& .MuiInputLabel-shrink": {
+                                            top: "0px"
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<Refresh />}
+                                    onClick={() =>
+                                        proxyRuleService
+                                            .getRules()
+                                            .then((rules) =>
+                                                setProxyRules(rules)
+                                            )
+                                    }>
+                                    {t("reload")}
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<Add />}
+                                    onClick={handleAddRule}>
+                                    {t("addRule")}
+                                </Button>
+                            </Box>
+                        </Box>
 
-                {/* Snackbar for notifications */}
-                <Snackbar
-                    open={snackbarOpen}
-                    autoHideDuration={3000}
-                    onClose={handleCloseSnackbar}
-                    message={snackbarMessage}
-                />
-            </Paper>
-        </Container>
+                        {filteredProxyRules.length === 0 ? (
+                            <Alert severity="info">
+                                {searchTerm
+                                    ? t("noRulesFoundMessage")
+                                    : t("noRulesMessage")}
+                            </Alert>
+                        ) : (
+                            <List dense>
+                                {filteredProxyRules.map((rule) => (
+                                    <ListItem key={rule.id} divider>
+                                        <ListItemText primary={rule.pattern} />
+                                        <ListItemSecondaryAction>
+                                            <IconButton
+                                                edge="end"
+                                                aria-label="edit"
+                                                size="small"
+                                                onClick={() =>
+                                                    handleEditRule(rule)
+                                                }
+                                                sx={{ mr: 1 }}>
+                                                <Edit />
+                                            </IconButton>
+                                            <IconButton
+                                                edge="end"
+                                                aria-label="delete"
+                                                size="small"
+                                                onClick={() =>
+                                                    handleDeleteRule(rule.id)
+                                                }>
+                                                <Delete />
+                                            </IconButton>
+                                        </ListItemSecondaryAction>
+                                    </ListItem>
+                                ))}
+                            </List>
+                        )}
+                    </TabPanel>
+
+                    {/* Add/Edit Rule Dialog */}
+                    <Dialog
+                        open={dialogOpen}
+                        onClose={handleCloseDialog}
+                        maxWidth="sm"
+                        fullWidth>
+                        <DialogTitle>
+                            {editingRule ? t("editRule") : t("addRuleDialog")}
+                        </DialogTitle>
+                        <DialogContent>
+                            <TextField
+                                autoFocus
+                                margin="dense"
+                                label={t("rulePattern")}
+                                fullWidth
+                                size="small"
+                                value={newRulePattern}
+                                onChange={(e) =>
+                                    setNewRulePattern(e.target.value)
+                                }
+                                placeholder="*.google.com"
+                                helperText={t("rulePatternHelper")}
+                            />
+                        </DialogContent>
+                        <DialogActions>
+                            <Button onClick={handleCloseDialog} size="small">
+                                {t("cancel")}
+                            </Button>
+                            <Button
+                                onClick={handleSaveRule}
+                                variant="contained"
+                                size="small">
+                                {editingRule ? t("save") : t("add")}
+                            </Button>
+                        </DialogActions>
+                    </Dialog>
+
+                    {/* Test Proxy Dialog */}
+                    <Dialog
+                        open={testDialogOpen}
+                        onClose={handleCloseTestDialog}
+                        maxWidth="sm"
+                        fullWidth>
+                        <DialogTitle>{t("testProxyDialog")}</DialogTitle>
+                        <DialogContent>
+                            <TextField
+                                autoFocus
+                                margin="dense"
+                                label={t("testTargetUrl")}
+                                fullWidth
+                                size="small"
+                                value={testTarget}
+                                onChange={(e) => setTestTarget(e.target.value)}
+                                placeholder="https://www.google.com"
+                                helperText={t("testTargetUrlHelper")}
+                            />
+                            {testResult && (
+                                <Box
+                                    sx={{
+                                        mt: 2,
+                                        p: 1,
+                                        bgcolor: testResult.startsWith("✅")
+                                            ? "success.light"
+                                            : "error.light",
+                                        borderRadius: 1
+                                    }}>
+                                    <Typography
+                                        variant="body2"
+                                        color={
+                                            testResult.startsWith("✅")
+                                                ? "success.contrastText"
+                                                : "error.contrastText"
+                                        }>
+                                        {testResult}
+                                    </Typography>
+                                </Box>
+                            )}
+                        </DialogContent>
+                        <DialogActions>
+                            <Button
+                                onClick={handleCloseTestDialog}
+                                size="small">
+                                {t("close")}
+                            </Button>
+                            <Button
+                                onClick={performProxyTest}
+                                variant="contained"
+                                size="small"
+                                disabled={testing || !testTarget.trim()}
+                                startIcon={
+                                    testing ? (
+                                        <CircularProgress size={16} />
+                                    ) : null
+                                }>
+                                {testing ? t("testing") : t("startTest")}
+                            </Button>
+                        </DialogActions>
+                    </Dialog>
+
+                    {/* Snackbar for notifications */}
+                    <Snackbar
+                        open={snackbarOpen}
+                        autoHideDuration={3000}
+                        onClose={handleCloseSnackbar}
+                        message={snackbarMessage}
+                    />
+                </Paper>
+            </Container>
+            {/* Version Info Footer */}
+            <Box
+                sx={{
+                    mt: 3,
+                    py: 2,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.5,
+                    borderTop: 1,
+                    borderColor: "divider"
+                }}>
+                <Typography
+                    variant="body2"
+                    color="text.primary"
+                    fontWeight="medium">
+                    Proxy Switch Craft
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                    Version {chrome.runtime.getManifest().version}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                    by{" "}
+                    <a
+                        href="mailto:biscuit_zhou@outlook.com"
+                        style={{ color: "inherit", textDecoration: "none" }}>
+                        biscuit_zhou@outlook.com
+                    </a>
+                </Typography>
+            </Box>
+        </>
     )
 }
 

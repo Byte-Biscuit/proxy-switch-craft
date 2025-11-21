@@ -2,14 +2,21 @@ import { Storage } from "@plasmohq/storage"
 import type { ProxyRule } from "~types/common"
 import { STORAGE_KEYS, PROXY_RULES_CHUNK_COUNT } from "~types/common"
 
+// Use local storage in development for faster testing, sync storage in production
+const isDevelopment = process.env.NODE_ENV === "development"
+
 export const localStorage = new Storage({
     area: "local"
 })
 
-
 export const syncStorage = new Storage({
     area: "sync"
 })
+
+// Use local storage in development, sync storage in production
+const storage = isDevelopment ? localStorage : syncStorage
+
+console.log(`Storage mode: ${isDevelopment ? 'LOCAL (development)' : 'SYNC (production)'}`)
 
 /**
  * Get proxy rules from Chrome sync storage
@@ -22,40 +29,34 @@ export const syncStorage = new Storage({
  */
 export async function getProxyRules(): Promise<ProxyRule[]> {
     let allRules: ProxyRule[] = []
-
     try {
         // First, check if there's old data in the legacy single key
-        const legacyRules = await syncStorage.get<ProxyRule[]>(STORAGE_KEYS.PROXY_RULES)
-        
+        const legacyRules = await storage.get<ProxyRule[]>(STORAGE_KEYS.PROXY_RULES)
+
         if (legacyRules && Array.isArray(legacyRules) && legacyRules.length > 0) {
             console.log(`📦 Found ${legacyRules.length} rules in legacy storage, migrating...`)
-            
+
             // Migrate to new chunked storage
-            await setProxyRules(legacyRules)
-            
+            await saveProxyRules(legacyRules)
+
             // Remove old key to avoid confusion
-            await syncStorage.remove(STORAGE_KEYS.PROXY_RULES)
-            
+            await storage.remove(STORAGE_KEYS.PROXY_RULES)
+
             console.log(`✅ Migration completed: ${legacyRules.length} rules migrated to chunked storage`)
             return legacyRules
         }
+        // Read from chunks sequentially until we hit an empty key
+        for (let i = 0; i < PROXY_RULES_CHUNK_COUNT; i++) {
+            const key = `${STORAGE_KEYS.PROXY_RULES}_${i}`
+            const chunk = await storage.get(key)
 
-        // Read from all chunks in parallel
-        const promises = Array.from({ length: PROXY_RULES_CHUNK_COUNT }, (_, index) => {
-            const key = `${STORAGE_KEYS.PROXY_RULES}_${index}`
-            return syncStorage.get(key)
-        })
-
-        const chunks = await Promise.all(promises)
-
-        // Merge all chunks
-        for (const chunk of chunks) {
-            if (Array.isArray(chunk) && chunk.length > 0) {
-                allRules.push(...chunk)
+            // If key doesn't exist or is empty, stop reading
+            if (!chunk || !Array.isArray(chunk) || chunk.length === 0) {
+                break
             }
+            allRules.push(...chunk)
         }
-
-        console.log(`📥 Loaded ${allRules.length} proxy rules from ${PROXY_RULES_CHUNK_COUNT} chunks`)
+        console.log(`Loaded ${allRules.length} proxy rules from storage`)
         return allRules
     } catch (error) {
         console.error('Error loading proxy rules:', error)
@@ -65,35 +66,52 @@ export async function getProxyRules(): Promise<ProxyRule[]> {
 
 /**
  * Set proxy rules to Chrome sync storage
- * Splits rules into 20 chunks and stores them in separate keys
+ * Stores rules sequentially with 100 rules per key
  * This approach avoids Chrome's single key storage limit (8KB per key in sync storage)
  * 
  * @param {ProxyRule[]} rules - Array of proxy rules to store
  * @returns {Promise<void>}
  */
-export async function setProxyRules(rules: ProxyRule[]): Promise<void> {
-
+export async function saveProxyRules(rules: ProxyRule[]): Promise<void> {
     try {
-        // Calculate chunk size
-        const chunkSize = Math.ceil(rules.length / PROXY_RULES_CHUNK_COUNT)
-
-        // Split rules into chunks and save
-        const promises: Promise<void>[] = []
-
-        for (let i = 0; i < PROXY_RULES_CHUNK_COUNT; i++) {
-            const start = i * chunkSize
-            const end = start + chunkSize
+        const RULES_PER_KEY = 100 // Each key stores up to 100 rules
+        const totalKeys = Math.ceil(rules.length / RULES_PER_KEY)
+        if (totalKeys > PROXY_RULES_CHUNK_COUNT) {
+            console.warn(`⚠️ Warning: Attempting to store ${rules.length} rules which exceeds the maximum supported ${PROXY_RULES_CHUNK_COUNT * RULES_PER_KEY} rules. Excess rules will be ignored.`)
+            return
+        }
+        // Only write keys that have data
+        for (let i = 0; i < totalKeys; i++) {
+            const start = i * RULES_PER_KEY
+            const end = start + RULES_PER_KEY
             const chunk = rules.slice(start, end)
             const key = `${STORAGE_KEYS.PROXY_RULES}_${i}`
 
-            // Save chunk (empty array if no data for this chunk)
-            promises.push(syncStorage.set(key, chunk))
+            await storage.set(key, chunk)
         }
 
-        await Promise.all(promises)
+        // Clear unused keys (if rules were deleted)
+        // For example, if we previously had 10 keys but now only need 3
+        if (totalKeys < PROXY_RULES_CHUNK_COUNT) {
+            for (let i = totalKeys; i < PROXY_RULES_CHUNK_COUNT; i++) {
+                const key = `${STORAGE_KEYS.PROXY_RULES}_${i}`
 
-        console.log(`💾 Saved ${rules.length} proxy rules to ${PROXY_RULES_CHUNK_COUNT} chunks`)
+                // Check if key exists before removing
+                const existingData = await storage.get(key)
+                if (existingData === null || existingData === undefined) {
+                    // Key doesn't exist, no need to check remaining keys
+                    break
+                }
+
+                await storage.remove(key)
+            }
+        }
+
+        console.log(`Saved ${rules.length} proxy rules to ${totalKeys} key(s) (${RULES_PER_KEY} rules per key)`)
     } catch (error) {
+        /**
+         *  1. Error saving proxy rules: Error: This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.
+         */
         console.error('Error saving proxy rules:', error)
         throw error
     }

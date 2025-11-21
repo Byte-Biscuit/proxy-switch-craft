@@ -246,5 +246,9 @@
     "reload": {
         "message": "重新加载",
         "description": "Reload button"
+    },
+    "rulesTotal": {
+        "message": "条规则",
+        "description": "Total rules count label"
     }
 }

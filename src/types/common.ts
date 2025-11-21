@@ -26,13 +26,32 @@ export interface ProxyConfig {
     }
 }
 
+export interface PendingRequest {
+    requestId: string
+    url: string
+    hostname: string
+    currentTabHostname: string
+    startTime: number
+}
+
+// Monitoring state for network failures
+export interface FailedRequest {
+    url: string
+    hostname: string
+    currentTabHostname: string
+    responseTime?: number
+    error?: string
+    timestamp: number
+    status?: number
+}
+
 // Storage key name constants
 export const STORAGE_KEYS = {
     GENERAL_SETTINGS: 'generalSettings',
     PROXY_RULES: 'proxyRules'
 } as const
 // Number of chunks to split proxy rules into for storage
-export const PROXY_RULES_CHUNK_COUNT = 20
+export const PROXY_RULES_CHUNK_COUNT = 50
 
 // Proxy protocol types
 export type ProxyScheme = 'http' | 'https' | 'socks4' | 'socks5'
