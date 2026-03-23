@@ -17,7 +17,9 @@ import type { FailedRequest } from './types/common'
  */
 chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
+        console.log("🔍 Intercepted request:",  details.url )
         proxyRuleService.isInRules(details.url).then((isInRules) => {
+            console.log(`Checking if request URL matches proxy rules (${details.url}):`, isInRules)
             if (isInRules) {
                 return
             }

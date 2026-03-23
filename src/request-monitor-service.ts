@@ -98,13 +98,15 @@ class RequestMonitorService {
         }
 
         // Build proxy configuration with PAC script
+        const pacScript = this.generatePacScript(generalSettings, proxyRules)
         const proxyConfig = {
             mode: "pac_script",
             pacScript: {
-                data: this.generatePacScript(generalSettings, proxyRules)
+                data: pacScript
             }
         }
 
+        console.log('🔧 Generated PAC Script:\n', pacScript)
         console.log('🔧 Configuring selective proxy with rules:', proxyConfig)
 
         try {
@@ -173,7 +175,17 @@ class RequestMonitorService {
         if (!generalSettings || !proxyRules || proxyRules.length === 0) {
             return 'function FindProxyForURL(url, host) { return "DIRECT"; }'
         }
-        const proxyString = `${generalSettings.proxyServerScheme.toUpperCase()} ${generalSettings.proxyServerAddress}:${generalSettings.proxyServerPort}`
+        
+        let proxyString = ""
+        const scheme = generalSettings.proxyServerScheme.toLowerCase()
+        const address = generalSettings.proxyServerAddress
+        const port = generalSettings.proxyServerPort
+
+        if (scheme === "socks5" || scheme === "socks4") {
+            proxyString = `SOCKS ${address}:${port}`
+        } else {
+            proxyString = `PROXY ${address}:${port}`
+        }
 
         // Convert rules to PAC script conditions
         const conditions = proxyRules.map(rule => {
@@ -181,20 +193,27 @@ class RequestMonitorService {
 
             if (rule.pattern.startsWith('*.')) {
                 // Pattern like "*.google.com" should match both "google.com" and "subdomain.google.com"
-                const domain = rule.pattern.substring(2) // Remove "*."
-                pattern = `(.*\\.)?${domain.replace(/\./g, '\\.')}`
-            } else {
-                // Exact domain pattern
+                const domain = rule.pattern.substring(2).replace(/\./g, '\\.') // Remove "*." and escape dots
+                pattern = `(^|\\.)?${domain}$`
+            } else if (rule.pattern.includes('*') || rule.pattern.includes('?')) {
+                // Convert simple wildcards to regex
                 pattern = rule.pattern
                     .replace(/\./g, '\\.')  // Escape dots
                     .replace(/\*/g, '.*')   // Convert * to .*
                     .replace(/\?/g, '.')    // Convert ? to .
+                pattern = `^${pattern}$`
+            } else {
+                // Exact domain pattern or prefix-style
+                pattern = `(^|\\.)${rule.pattern.replace(/\./g, '\\.')}$`
             }
 
             return `if (/${pattern}/i.test(host)) { return "${proxyString}"; }`
         }).join('\n    ')
 
         return `function FindProxyForURL(url, host) {
+        // Exclude localhost
+        if (host === 'localhost' || host === '127.0.0.1') { return "DIRECT"; }
+
         // Check if host matches any proxy rule
         ${conditions}
         
