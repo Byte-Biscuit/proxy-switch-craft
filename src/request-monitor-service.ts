@@ -10,12 +10,28 @@ class RequestMonitorService {
         this.pendingRequests.set(request.requestId, request)
     }
 
+    updatePendingRequestTabHostname(requestId: string, currentTabHostname: string) {
+        const pending = this.pendingRequests.get(requestId)
+        if (pending) {
+            pending.currentTabHostname = currentTabHostname
+        }
+    }
+
     removePendingRequest(requestId: string) {
         this.pendingRequests.delete(requestId)
     }
 
     getPendingRequest(requestId: string) {
         return this.pendingRequests.get(requestId)
+    }
+
+    async isProxyEnabled(): Promise<boolean> {
+        const settings = await generalSettingsService.getSettings()
+        return settings?.proxyEnabled === true
+    }
+
+    async isMonitoringEnabled(): Promise<boolean> {
+        return await this.isProxyEnabled()
     }
 
     getFailedRequestsCurrentTabHostname(currentTabHostname: string): FailedRequest[] {
@@ -26,13 +42,48 @@ class RequestMonitorService {
         this.failedRequestsByHostname.delete(currentTabHostname)
     }
 
+    async getActiveTabHostname(): Promise<string> {
+        try {
+            const [tab] = await chrome.tabs.query({
+                active: true,
+                currentWindow: true
+            })
+            if (tab?.url) {
+                return new URL(tab.url).hostname
+            }
+        } catch (error) {
+            console.error('Error getting active tab hostname:', error)
+        }
+        return ''
+    }
+
+    async resolveTabHostname(tabId: number): Promise<string> {
+        try {
+            const tab = await chrome.tabs.get(tabId)
+            if (tab.url) {
+                return new URL(tab.url).hostname
+            }
+        } catch (error) {
+            console.error('Error resolving tab hostname:', error)
+        }
+        return ''
+    }
+
+    async updateBadgeForActiveTab() {
+        const activeTabHostname = await this.getActiveTabHostname()
+        await this.updateBadge(activeTabHostname)
+    }
+
     async updateBadge(currentTabHostname: string) {
         try {
+            if (!(await this.isMonitoringEnabled())) {
+                chrome.action.setBadgeText({ text: '' })
+                return
+            }
             if (!currentTabHostname || currentTabHostname.trim() === "") {
                 chrome.action.setBadgeText({ text: '' })
                 return
             }
-            // Get failed requests for current hostname (exact match)
             const failedRequests = this.failedRequestsByHostname.get(currentTabHostname) || []
             const count = failedRequests.length
 
@@ -52,25 +103,22 @@ class RequestMonitorService {
      * Add failed request to monitoring list (grouped by hostname)
      */
     async addFailedRequest(request: FailedRequest) {
+        if (!(await this.isMonitoringEnabled())) {
+            return
+        }
         const currentTabHostname = request.currentTabHostname;
         if (!currentTabHostname) {
             console.error("No current tab hostname provided for failed request:", request);
             return;
         }
-        // Get existing failed requests for this hostname
         let failedRequests = this.failedRequestsByHostname.get(currentTabHostname) || []
 
-        // Add new failed request
         if (failedRequests.find(r => r.hostname === request.hostname)) {
-            // Duplicate entry, skip
             return
         }
         failedRequests.push(request)
-        // Update the map
         this.failedRequestsByHostname.set(currentTabHostname, failedRequests)
-        console.log("Total failed requests for", this.failedRequestsByHostname);
-        // Update badge for current tab
-        this.updateBadge(currentTabHostname)
+        await this.updateBadgeForActiveTab()
     }
 
     updateFailedRequestsForCurrentTab(currentTabHostname: string, hostnames: string[]) {
@@ -81,7 +129,7 @@ class RequestMonitorService {
         } else {
             this.failedRequestsByHostname.delete(currentTabHostname);
         }
-        this.updateBadge(currentTabHostname)
+        this.updateBadgeForActiveTab()
     }
 
     /**
@@ -90,17 +138,20 @@ class RequestMonitorService {
      */
     async configureSelectiveProxy() {
         const generalSettings = await generalSettingsService.getSettings();
+        if (!generalSettings?.proxyEnabled) {
+            await this.setDirectConnection()
+            await this.updateBadgeForActiveTab()
+            return
+        }
         const proxyRules = await proxyRuleService.getRules();
-        if (!generalSettings || !proxyRules || proxyRules.length === 0) {
-            // No settings or rules, use direct connection
+        if (!proxyRules || proxyRules.length === 0) {
             await this.setDirectConnection()
             return
         }
 
-        // Build proxy configuration with PAC script
         const pacScript = this.generatePacScript(generalSettings, proxyRules)
         const proxyConfig = {
-            mode: "pac_script",
+            mode: "pac_script" as const,
             pacScript: {
                 data: pacScript
             }
@@ -110,13 +161,11 @@ class RequestMonitorService {
         console.log('🔧 Configuring selective proxy with rules:', proxyConfig)
 
         try {
-            // Configure proxy for regular sessions
             await chrome.proxy.settings.set({
                 value: proxyConfig,
                 scope: 'regular'
             })
 
-            // Configure proxy for incognito sessions (if permission granted)
             try {
                 await chrome.proxy.settings.set({
                     value: proxyConfig,
@@ -144,13 +193,11 @@ class RequestMonitorService {
      */
     async setDirectConnection() {
         try {
-            // Configure direct connection for regular sessions
             await chrome.proxy.settings.set({
                 value: { mode: "direct" },
                 scope: 'regular'
             })
 
-            // Configure direct connection for incognito sessions (if permission granted)
             try {
                 await chrome.proxy.settings.set({
                     value: { mode: "direct" },
@@ -167,15 +214,27 @@ class RequestMonitorService {
     }
 
     /**
+     * Convert a rule pattern to a PAC condition using shExpMatch/dnsDomainIs
+     */
+    private ruleToPacCondition(pattern: string): string {
+        if (pattern.startsWith('*.')) {
+            const domain = pattern.substring(2)
+            return `(host === "${domain}" || dnsDomainIs(host, ".${domain}"))`
+        }
+        if (pattern.includes('*') || pattern.includes('?')) {
+            return `shExpMatch(host, "${pattern}")`
+        }
+        return `(host === "${pattern}" || dnsDomainIs(host, ".${pattern}"))`
+    }
+
+    /**
      * Generate PAC script based on current settings and rules
-     * 
-     * @returns {string} - JavaScript PAC script as string
      */
     generatePacScript(generalSettings: GeneralSettings, proxyRules: ProxyRule[]): string {
         if (!generalSettings || !proxyRules || proxyRules.length === 0) {
             return 'function FindProxyForURL(url, host) { return "DIRECT"; }'
         }
-        
+
         let proxyString = ""
         const scheme = generalSettings.proxyServerScheme.toLowerCase()
         const address = generalSettings.proxyServerAddress
@@ -187,37 +246,16 @@ class RequestMonitorService {
             proxyString = `PROXY ${address}:${port}`
         }
 
-        // Convert rules to PAC script conditions
         const conditions = proxyRules.map(rule => {
-            let pattern: string
-
-            if (rule.pattern.startsWith('*.')) {
-                // Pattern like "*.google.com" should match both "google.com" and "subdomain.google.com"
-                const domain = rule.pattern.substring(2).replace(/\./g, '\\.') // Remove "*." and escape dots
-                pattern = `(^|\\.)?${domain}$`
-            } else if (rule.pattern.includes('*') || rule.pattern.includes('?')) {
-                // Convert simple wildcards to regex
-                pattern = rule.pattern
-                    .replace(/\./g, '\\.')  // Escape dots
-                    .replace(/\*/g, '.*')   // Convert * to .*
-                    .replace(/\?/g, '.')    // Convert ? to .
-                pattern = `^${pattern}$`
-            } else {
-                // Exact domain pattern or prefix-style
-                pattern = `(^|\\.)${rule.pattern.replace(/\./g, '\\.')}$`
-            }
-
-            return `if (/${pattern}/i.test(host)) { return "${proxyString}"; }`
+            const condition = this.ruleToPacCondition(rule.pattern)
+            return `if (${condition}) { return "${proxyString}"; }`
         }).join('\n    ')
 
         return `function FindProxyForURL(url, host) {
-        // Exclude localhost
         if (host === 'localhost' || host === '127.0.0.1') { return "DIRECT"; }
 
-        // Check if host matches any proxy rule
         ${conditions}
-        
-        // Default to direct connection
+
         return "DIRECT";
     }`
     }

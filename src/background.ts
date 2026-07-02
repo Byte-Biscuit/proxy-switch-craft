@@ -9,7 +9,42 @@ import proxyRuleService from "~proxy-rule-service"
 import generalSettingsService from "~general-settings-service"
 import requestMonitorService from "~request-monitor-service"
 import { generateId } from "~utils/util"
+import { STORAGE_KEYS } from './types/common'
 import type { FailedRequest } from './types/common'
+
+const IGNORED_ERRORS = [
+    'net::ERR_ABORTED',
+    'net::ERR_INTERNET_DISCONNECTED',
+    'net::ERR_CONNECTION_ABORTED',
+    'net::ERR_BLOCKED_BY_CLIENT',
+    'net::ERR_CACHE_MISS',
+]
+
+function isLocalhost(hostname: string): boolean {
+    return hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.startsWith('127.')
+}
+
+async function recordFailedRequest(
+    pendingRequest: { url: string; currentTabHostname: string },
+    details: chrome.webRequest.WebResponseErrorDetails
+) {
+    const isInRules = await proxyRuleService.isInRules(details.url)
+    if (isInRules) {
+        return
+    }
+    const hostname = proxyRuleService.formatPattern(pendingRequest.url)
+    const failedRequest = {
+        url: pendingRequest.url,
+        hostname: hostname,
+        currentTabHostname: pendingRequest.currentTabHostname,
+        error: details.error,
+        timestamp: Date.now()
+    }
+    await requestMonitorService.addFailedRequest(failedRequest)
+    console.log("❌ Request failed:", failedRequest)
+}
 
 /**
  * Intercept all network requests and log proxy decisions
@@ -17,37 +52,59 @@ import type { FailedRequest } from './types/common'
  */
 chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
-        console.log("🔍 Intercepted request:",  details.url )
-        proxyRuleService.isInRules(details.url).then((isInRules) => {
-            console.log(`Checking if request URL matches proxy rules (${details.url}):`, isInRules)
-            if (isInRules) {
+        console.log("🔍 Intercepted request:", details.url)
+
+        let hostname: string
+        try {
+            hostname = new URL(details.url).hostname
+        } catch {
+            return
+        }
+
+        if (isLocalhost(hostname)) {
+            return
+        }
+
+        if (!details.tabId || details.tabId === -1) {
+            return
+        }
+
+        // Sync record to avoid race with onCompleted/onErrorOccurred
+        requestMonitorService.addPendingRequest({
+            requestId: details.requestId,
+            url: details.url,
+            hostname: hostname,
+            currentTabHostname: '',
+            tabId: details.tabId,
+            startTime: Date.now(),
+        })
+
+        requestMonitorService.isMonitoringEnabled().then((enabled) => {
+            if (!enabled) {
+                requestMonitorService.removePendingRequest(details.requestId)
                 return
             }
-            const hostname = new URL(details.url).hostname
-            // Exclude localhost and 127.0.0.1 from proxy
-            if (
-                hostname === 'localhost' ||
-                hostname === '127.0.0.1' ||
-                hostname.startsWith('127.') // covers 127.x.x.x
-            ) {
-                return
-            }
-            // Track request start time for non-proxy requests
-            if (details.tabId && details.tabId !== -1) {
-                // Get current tab hostname asynchronously
+
+            proxyRuleService.isInRules(details.url).then((isInRules) => {
+                if (isInRules) {
+                    requestMonitorService.removePendingRequest(details.requestId)
+                    return
+                }
+
                 chrome.tabs.get(details.tabId).then(tab => {
                     if (tab.url) {
                         try {
                             const currentTabHostname = new URL(tab.url).hostname
-                            const pendingRequest = {
+                            requestMonitorService.updatePendingRequestTabHostname(
+                                details.requestId,
+                                currentTabHostname
+                            )
+                            console.log("🌐 Request intercepted:", {
                                 requestId: details.requestId,
                                 url: details.url,
-                                hostname: hostname,
-                                currentTabHostname: currentTabHostname,
-                                startTime: Date.now(),
-                            }
-                            requestMonitorService.addPendingRequest(pendingRequest)
-                            console.log("🌐 Request intercepted:", pendingRequest)
+                                hostname,
+                                currentTabHostname,
+                            })
                         } catch (error) {
                             console.error('Error parsing tab URL:', error)
                         }
@@ -55,9 +112,8 @@ chrome.webRequest.onBeforeRequest.addListener(
                 }).catch(error => {
                     console.error('Error getting tab info:', error)
                 })
-            }
-        });
-
+            })
+        })
     },
     { urls: ["http://*/*", "https://*/*"] },
     ["requestBody"]
@@ -70,13 +126,23 @@ chrome.webRequest.onBeforeRequest.addListener(
 chrome.webRequest.onCompleted.addListener(
     (details) => {
         const pendingRequest = requestMonitorService.getPendingRequest(details.requestId)
-        generalSettingsService.getSettings().then(generalSettings => {
+        generalSettingsService.getSettings().then(async generalSettings => {
             if (!(pendingRequest && generalSettings)) {
                 return
             }
+            if (!generalSettings.proxyEnabled) {
+                return
+            }
+
+            let currentTabHostname = pendingRequest.currentTabHostname
+            if (!currentTabHostname && pendingRequest.tabId) {
+                currentTabHostname = await requestMonitorService.resolveTabHostname(pendingRequest.tabId)
+            }
+            if (!currentTabHostname) {
+                return
+            }
+
             const responseTime = Date.now() - pendingRequest.startTime
-            const currentTabHostname = pendingRequest.currentTabHostname;
-            // Check if response time exceeds threshold
             if (responseTime > generalSettings.responseTimeThreshold) {
                 const hostname = proxyRuleService.formatPattern(pendingRequest.url)
                 const failedRequest = {
@@ -87,13 +153,12 @@ chrome.webRequest.onCompleted.addListener(
                     timestamp: Date.now(),
                     status: details.statusCode
                 }
-                requestMonitorService.addFailedRequest(failedRequest)
+                await requestMonitorService.addFailedRequest(failedRequest)
                 console.log("⚠️ Slow request detected:", failedRequest)
             }
         }).finally(() => {
-            // Clean up pending request
             requestMonitorService.removePendingRequest(details.requestId)
-        });
+        })
     },
     { urls: ["http://*/*", "https://*/*"] }
 )
@@ -103,41 +168,42 @@ chrome.webRequest.onCompleted.addListener(
  */
 chrome.webRequest.onErrorOccurred.addListener(
     (details) => {
-        const pendingRequest = requestMonitorService.getPendingRequest(details.requestId)
-        // For net::ERR_ABORTED, net::ERR_INTERNET_DISCONNECTED type errors, don't add to request failure list
-        // Ignore aborted and disconnected errors
-        const ignoredErrors = [
-            'net::ERR_ABORTED',
-            'net::ERR_INTERNET_DISCONNECTED',
-            'net::ERR_CONNECTION_ABORTED',
-            'net::ERR_BLOCKED_BY_CLIENT',
-            'net::ERR_CACHE_MISS',
-        ]
-        if (ignoredErrors.includes(details.error)) {
+        if (IGNORED_ERRORS.includes(details.error)) {
             console.warn("⚠️ Request aborted, not logging:", {
                 url: details.url,
                 requestId: details.requestId
             })
+            requestMonitorService.removePendingRequest(details.requestId)
             return
         }
-        if (pendingRequest) {
-            proxyRuleService.isInRules(details.url).then((isInRules) => {
-                if (isInRules) {
-                    return
-                }
-                const hostname = proxyRuleService.formatPattern(pendingRequest.url)
-                const currentTabHostname = pendingRequest.currentTabHostname;
-                const failedRequest = {
-                    url: pendingRequest.url,
-                    hostname: hostname,
-                    currentTabHostname: currentTabHostname,
-                    error: details.error,
-                    timestamp: Date.now()
-                }
-                requestMonitorService.addFailedRequest(failedRequest)
-                console.log("❌ Request failed:", failedRequest)
-            }).finally(() => { requestMonitorService.removePendingRequest(details.requestId) })
+
+        const pendingRequest = requestMonitorService.getPendingRequest(details.requestId)
+
+        const handleError = async () => {
+            if (!(await requestMonitorService.isMonitoringEnabled())) {
+                return
+            }
+
+            let currentTabHostname = pendingRequest?.currentTabHostname || ''
+            const url = pendingRequest?.url || details.url
+            const tabId = pendingRequest?.tabId ?? details.tabId
+
+            if (!currentTabHostname && tabId && tabId !== -1) {
+                currentTabHostname = await requestMonitorService.resolveTabHostname(tabId)
+            }
+            if (!currentTabHostname) {
+                return
+            }
+
+            await recordFailedRequest(
+                { url, currentTabHostname },
+                details
+            )
         }
+
+        handleError().finally(() => {
+            requestMonitorService.removePendingRequest(details.requestId)
+        })
     },
     { urls: ["http://*/*", "https://*/*"] }
 )
@@ -165,7 +231,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 break;
             case 'clearFailedRequests':
                 requestMonitorService.removeFailedRequestsForHostname(currentTabHostname);
-                requestMonitorService.updateBadge(currentTabHostname);
+                await requestMonitorService.updateBadgeForActiveTab();
                 sendResponse({ success: true });
                 break;
             case 'addProxyRules':
@@ -178,25 +244,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     };
                     proxyRules.push(proxyRule);
                 }
-                proxyRuleService.addRules(proxyRules).then(() => {
-                    requestMonitorService.updateFailedRequestsForCurrentTab(currentTabHostname, hostnames);
-                    requestMonitorService.configureSelectiveProxy();
-                });
+                await proxyRuleService.addRules(proxyRules);
+                requestMonitorService.updateFailedRequestsForCurrentTab(currentTabHostname, hostnames);
+                await requestMonitorService.configureSelectiveProxy();
                 sendResponse({ success: true });
                 break;
             case 'updateBadge':
-                await requestMonitorService.updateBadge(currentTabHostname);
+                await requestMonitorService.updateBadgeForActiveTab();
                 sendResponse({ success: true });
                 break;
             case 'configureSelectiveProxy':
-                requestMonitorService.configureSelectiveProxy();
+                await requestMonitorService.configureSelectiveProxy();
                 sendResponse({ success: true });
                 break;
+            case 'getProxyEnabled':
+                sendResponse({ proxyEnabled: await requestMonitorService.isProxyEnabled() });
+                break;
+            case 'setProxyEnabled': {
+                const settings = await generalSettingsService.getSettings();
+                const updatedSettings = {
+                    ...settings,
+                    proxyEnabled: request.enabled === true,
+                };
+                await generalSettingsService.saveSettings(updatedSettings);
+                await requestMonitorService.configureSelectiveProxy();
+                sendResponse({ success: true, proxyEnabled: updatedSettings.proxyEnabled });
+                break;
+            }
             default:
                 console.warn('Unknown action:', action);
         }
     })();
-    // Keep message channel open for async response
     return true
 })
 
@@ -204,32 +282,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * Listen for tab activation (switching tabs)
  * Update badge to show failed requests count for the newly active tab
  */
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    try {
-        const tab = await chrome.tabs.get(activeInfo.tabId)
-        if (tab.url) {
-            const hostname = new URL(tab.url).hostname
-            await requestMonitorService.updateBadge(hostname)
-        } else {
-            await requestMonitorService.updateBadge("")
-        }
-    } catch (error) {
-        console.error('Error getting tab hostname on activation:', error)
-    }
+chrome.tabs.onActivated.addListener(async () => {
+    await requestMonitorService.updateBadgeForActiveTab()
 })
 
 /**
  * Listen for tab URL updates
  * Update badge when user navigates to a different URL in the same tab
  */
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    // Only update when URL changes and tab is active
+chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
     if (changeInfo.url && tab.active) {
-        try {
-            const hostname = new URL(changeInfo.url).hostname
-            await requestMonitorService.updateBadge(hostname)
-        } catch (error) {
-            console.error('Error parsing URL on tab update:', error)
-        }
+        await requestMonitorService.updateBadgeForActiveTab()
     }
 })
+
+/**
+ * Initialize proxy on install, browser startup, and service worker load
+ */
+function initializeProxy() {
+    requestMonitorService.configureSelectiveProxy().catch((error) => {
+        console.error('Error initializing proxy:', error)
+    })
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+    initializeProxy()
+})
+
+chrome.runtime.onStartup.addListener(() => {
+    initializeProxy()
+})
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && Object.keys(changes).some(k => k.startsWith(STORAGE_KEYS.PROXY_RULES))) {
+        initializeProxy()
+    }
+    if (area === 'local' && changes[STORAGE_KEYS.GENERAL_SETTINGS]) {
+        initializeProxy()
+    }
+})
+
+initializeProxy()

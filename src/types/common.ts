@@ -7,6 +7,7 @@ export interface GeneralSettings {
     proxyServerScheme: string
     proxyUsername: string
     proxyPassword: string
+    proxyEnabled: boolean
 }
 
 export interface ProxyRule {
@@ -31,6 +32,7 @@ export interface PendingRequest {
     url: string
     hostname: string
     currentTabHostname: string
+    tabId: number
     startTime: number
 }
 

@@ -250,5 +250,25 @@
     "rulesTotal": {
         "message": "rules",
         "description": "Total rules count label"
+    },
+    "proxyEnabled": {
+        "message": "Enable Proxy",
+        "description": "Proxy master switch label"
+    },
+    "proxyEnabledHelper": {
+        "message": "When enabled, domains in proxy rules use the configured proxy server. This setting applies to this device only.",
+        "description": "Proxy master switch helper text"
+    },
+    "proxyEnabledOn": {
+        "message": "Proxy enabled",
+        "description": "Proxy enabled status"
+    },
+    "proxyEnabledOff": {
+        "message": "Proxy disabled",
+        "description": "Proxy disabled status"
+    },
+    "proxyDisabledMessage": {
+        "message": "Proxy is disabled on this device. Enable it to apply proxy rules and monitor network requests.",
+        "description": "Message shown when proxy is disabled"
     }
 }

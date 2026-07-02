@@ -250,5 +250,25 @@
     "rulesTotal": {
         "message": "条规则",
         "description": "Total rules count label"
+    },
+    "proxyEnabled": {
+        "message": "启用代理",
+        "description": "Proxy master switch label"
+    },
+    "proxyEnabledHelper": {
+        "message": "开启后，代理规则中的域名将使用已配置的代理服务器。此设置仅对本机生效。",
+        "description": "Proxy master switch helper text"
+    },
+    "proxyEnabledOn": {
+        "message": "代理已开启",
+        "description": "Proxy enabled status"
+    },
+    "proxyEnabledOff": {
+        "message": "代理已关闭",
+        "description": "Proxy disabled status"
+    },
+    "proxyDisabledMessage": {
+        "message": "本机代理已关闭。开启后将应用代理规则并监控网络请求。",
+        "description": "Message shown when proxy is disabled"
     }
 }

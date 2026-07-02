@@ -17,6 +17,7 @@ import {
     DialogContent,
     DialogTitle,
     FormControl,
+    FormControlLabel,
     IconButton,
     InputLabel,
     List,
@@ -27,6 +28,7 @@ import {
     Paper,
     Select,
     Snackbar,
+    Switch,
     Tab,
     Tabs,
     TextField,
@@ -72,7 +74,8 @@ function Options() {
         proxyServerPort: 8080,
         proxyServerScheme: "http",
         proxyUsername: "",
-        proxyPassword: ""
+        proxyPassword: "",
+        proxyEnabled: false
     })
     const [proxyRules, setProxyRules] = useState<ProxyRule[]>([])
     const [dialogOpen, setDialogOpen] = useState(false)
@@ -109,15 +112,37 @@ function Options() {
     const saveSettings = async () => {
         generalSettingsService
             .saveSettings(generalSettings)
-            .then(() => {
+            .then(async () => {
                 setSnackbarMessage(t("settingsSaved"))
                 setSnackbarOpen(true)
+                await chrome.runtime.sendMessage({
+                    action: "configureSelectiveProxy"
+                })
             })
             .catch((error) => {
                 console.error("Error saving settings:", error)
                 setSnackbarMessage(t("saveSettingsFailed"))
                 setSnackbarOpen(true)
             })
+    }
+
+    const handleProxyEnabledChange = async (
+        event: React.ChangeEvent<HTMLInputElement>
+    ) => {
+        const enabled = event.target.checked
+        const updatedSettings = {
+            ...generalSettings,
+            proxyEnabled: enabled
+        }
+        setGeneralSettings(updatedSettings)
+        try {
+            await generalSettingsService.saveSettings(updatedSettings)
+            await chrome.runtime.sendMessage({
+                action: "configureSelectiveProxy"
+            })
+        } catch (error) {
+            console.error("Error saving proxy enabled state:", error)
+        }
     }
 
     const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -472,6 +497,33 @@ function Options() {
                         </Box>
 
                         <Box component="form" sx={{ mt: 2 }}>
+                            <Typography
+                                variant="subtitle2"
+                                sx={{ mb: 1, color: "text.secondary" }}>
+                                {t("proxyEnabled")}
+                            </Typography>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={generalSettings.proxyEnabled}
+                                        onChange={handleProxyEnabledChange}
+                                        color="primary"
+                                    />
+                                }
+                                label={
+                                    generalSettings.proxyEnabled
+                                        ? t("proxyEnabledOn")
+                                        : t("proxyEnabledOff")
+                                }
+                            />
+                            <Typography
+                                variant="caption"
+                                display="block"
+                                color="text.secondary"
+                                sx={{ mb: 2 }}>
+                                {t("proxyEnabledHelper")}
+                            </Typography>
+
                             <Typography
                                 variant="subtitle2"
                                 sx={{ mb: 2, color: "text.secondary" }}>

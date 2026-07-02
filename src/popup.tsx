@@ -6,10 +6,12 @@ import {
     Card,
     CardContent,
     Chip,
+    FormControlLabel,
     IconButton,
+    Switch,
     Typography
 } from "@mui/material"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { type FailedRequest } from "./types/common"
 import { t } from "./utils/i18n"
@@ -17,6 +19,7 @@ import { t } from "./utils/i18n"
 function IndexPopup() {
     const [failedRequests, setFailedRequests] = useState<FailedRequest[]>([])
     const [loading, setLoading] = useState(true)
+    const [proxyEnabled, setProxyEnabled] = useState(false)
 
     const getCurrentTabHostname = async () => {
         const [tab] = await chrome.tabs.query({
@@ -35,7 +38,18 @@ function IndexPopup() {
         return currentTabHostname
     }
 
-    const loadFailedRequests = async () => {
+    const loadProxyEnabled = async () => {
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: "getProxyEnabled"
+            })
+            setProxyEnabled(response?.proxyEnabled === true)
+        } catch (error) {
+            console.error("Error loading proxy enabled state:", error)
+        }
+    }
+
+    const loadFailedRequests = useCallback(async () => {
         try {
             const currentTabHostname = await getCurrentTabHostname()
             const response = await chrome.runtime.sendMessage({
@@ -48,7 +62,7 @@ function IndexPopup() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [])
 
     const clearFailedRequests = async () => {
         try {
@@ -58,31 +72,41 @@ function IndexPopup() {
                 currentTabHostname
             })
             setFailedRequests([])
-            // Close the popup page
             window.close()
         } catch (error) {
             console.error("Error clearing failed requests:", error)
         }
     }
 
+    const handleProxyToggle = async (enabled: boolean) => {
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: "setProxyEnabled",
+                enabled
+            })
+            setProxyEnabled(response?.proxyEnabled === true)
+            if (!enabled) {
+                setFailedRequests([])
+            } else {
+                await loadFailedRequests()
+            }
+        } catch (error) {
+            console.error("Error toggling proxy:", error)
+        }
+    }
+
     const addToProxyRules = async (hostname: string) => {
         try {
             const currentTabHostname = await getCurrentTabHostname()
-            // Send message to background to add proxy rule
             await chrome.runtime.sendMessage({
                 action: "addProxyRules",
                 hostnames: [hostname],
                 currentTabHostname
             })
-            // Reconfigure proxy
-            await chrome.runtime.sendMessage({
-                action: "configureSelectiveProxy"
-            })
             await chrome.runtime.sendMessage({
                 action: "updateBadge",
                 currentTabHostname
             })
-            // Clear failed requests asynchronously to prevent UI confusion where failed requests still appear after adding proxy rules
             const updatedFailedRequests = failedRequests.filter(
                 (request) => request.hostname !== hostname
             )
@@ -94,7 +118,6 @@ function IndexPopup() {
 
     const addAllToProxyRules = async () => {
         try {
-            // Get all unique hostnames
             const uniqueHostnames = [
                 ...new Set(failedRequests.map((request) => request.hostname))
             ]
@@ -104,16 +127,10 @@ function IndexPopup() {
                 hostnames: uniqueHostnames,
                 currentTabHostname
             })
-            // Reconfigure proxy
-            await chrome.runtime.sendMessage({
-                action: "configureSelectiveProxy"
-            })
-            // Update badge
             await chrome.runtime.sendMessage({
                 action: "updateBadge",
                 currentTabHostname
             })
-            // Refresh current tab
             chrome.tabs.query(
                 {
                     active: true,
@@ -125,8 +142,6 @@ function IndexPopup() {
                     }
                 }
             )
-
-            // Clear failed request list
             setFailedRequests([])
         } catch (error) {
             console.error("Error adding all to proxy rules:", error)
@@ -144,8 +159,38 @@ function IndexPopup() {
     }
 
     useEffect(() => {
+        loadProxyEnabled()
         loadFailedRequests()
-    }, [])
+    }, [loadFailedRequests])
+
+    useEffect(() => {
+        const handleTabActivated = () => {
+            loadFailedRequests()
+        }
+        const handleTabUpdated = (
+            _tabId: number,
+            changeInfo: chrome.tabs.TabChangeInfo
+        ) => {
+            if (changeInfo.url) {
+                loadFailedRequests()
+            }
+        }
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                loadFailedRequests()
+            }
+        }
+
+        chrome.tabs.onActivated.addListener(handleTabActivated)
+        chrome.tabs.onUpdated.addListener(handleTabUpdated)
+        document.addEventListener("visibilitychange", handleVisibilityChange)
+
+        return () => {
+            chrome.tabs.onActivated.removeListener(handleTabActivated)
+            chrome.tabs.onUpdated.removeListener(handleTabUpdated)
+            document.removeEventListener("visibilitychange", handleVisibilityChange)
+        }
+    }, [loadFailedRequests])
 
     if (loading) {
         return (
@@ -174,6 +219,30 @@ function IndexPopup() {
                     sx={{
                         display: "flex",
                         justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 1
+                    }}>
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={proxyEnabled}
+                                onChange={(e) =>
+                                    handleProxyToggle(e.target.checked)
+                                }
+                                color="primary"
+                            />
+                        }
+                        label={
+                            proxyEnabled
+                                ? t("proxyEnabledOn")
+                                : t("proxyEnabledOff")
+                        }
+                    />
+                </Box>
+                <Box
+                    sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
                         alignItems: "center"
                     }}>
                     <Typography variant="h6">
@@ -194,7 +263,9 @@ function IndexPopup() {
             </Box>
 
             <Box sx={{ p: 1, flex: 1 }}>
-                {failedRequests.length === 0 ? (
+                {!proxyEnabled ? (
+                    <Alert severity="info">{t("proxyDisabledMessage")}</Alert>
+                ) : failedRequests.length === 0 ? (
                     <Alert severity="success">{t("noFailedRequests")}</Alert>
                 ) : (
                     <>
